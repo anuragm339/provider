@@ -41,6 +41,7 @@ dependencies {
     implementation 'io.rsocket:rsocket-core:1.1.4'
     implementation 'io.rsocket:rsocket-transport-netty:1.1.4'
     implementation 'io.projectreactor:reactor-core:3.6.10'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.17.2'
 
     // SnakeYAML for YAML configuration
     runtimeOnly("org.yaml:snakeyaml:2.2")

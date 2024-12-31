@@ -13,8 +13,10 @@ import com.example.messaging.exceptions.VerificationException;
 import com.example.messaging.models.Message;
 
 import com.example.messaging.storage.service.MessageStore;
+import com.example.messaging.transport.rsocket.consumer.ConsumerConnection;
 import com.example.messaging.transport.rsocket.consumer.ConsumerRegistry;
 import com.example.messaging.transport.rsocket.handler.MessagePublisher;
+import com.example.messaging.transport.rsocket.model.TransportMessage;
 import jakarta.inject.Named;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
@@ -121,9 +123,13 @@ public class DefaultMessageProcessor implements MessageProcessor {
     private void processMessageContent(Message message) {
         // Placeholder for actual message processing logic
         // This would be implemented based on business requirements
-        consumerRegistry.getActiveConnections().map(connection -> connection.getMetadata().getConsumerId());
-//        messagePublisher.publishMessage(message,);
-        logger.debug("Processing message content for offset: {}", message.getMsgOffset());
+        messagePublisher.publishMessage(message, "group-1")
+                .doOnSubscribe(__ -> logger.info("Starting publish for message {}", message.getMsgOffset()))
+                .doOnSuccess(__ -> logger.info("Message {} published successfully", message.getMsgOffset()))
+                .doOnError(error -> logger.error("Failed to publish message {}: {}",
+                        message.getMsgOffset(), error.getMessage()))
+                .block();
+        logger.info("Message {} processing complete", message.getMsgOffset());
     }
 
     private ProcessingResult createFailureResult(Message message, Exception e) {
@@ -196,11 +202,11 @@ public class DefaultMessageProcessor implements MessageProcessor {
 
     private void storeResult(ProcessingResult result) {
         try {
-            logger.info("Starting to store result in database for offset: {}" + result.getOffset());
+            logger.info("Starting to store result in database for offset: {}" , result.getOffset());
             messageStore.storeProcessingResult(result).join();
-            logger.info("Successfully stored result in database for offset:{}  " + result.getOffset());
+            logger.info("Successfully stored result in database for offset:{}  " , result.getOffset());
         } catch (Exception e) {
-            logger.info("Failed to store processing result for offset: {}" + result.getOffset());
+            logger.info("Failed to store processing result for offset: {}" , result.getOffset());
             e.printStackTrace();
             throw new ProcessingException(
                     "Failed to store processing result",
