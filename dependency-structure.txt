@@ -1,0 +1,24 @@
+flowchart TB
+    subgraph Common[message-common]
+        CP[Protocol]
+        CM[Models]
+        CU[Utils]
+    end
+
+    subgraph Provider[message-provider]
+        PS[Server Core]
+        PD[Database]
+        PM[Monitoring]
+    end
+
+    subgraph Consumer[message-consumer-sdk]
+        CC[Client Core]
+        CL[Local Cache]
+        CE[Examples]
+    end
+
+    Common --> Provider
+    Common --> Consumer
+
+    classDef repo fill:#f9f,stroke:#333,stroke-width:4px
+    class Common,Provider,Consumer repo

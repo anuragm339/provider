@@ -1,0 +1,26 @@
+sequenceDiagram
+    participant C as Consumer
+    participant RS as RSocketServer
+    participant CR as ConsumerRegistry
+    participant PM as PipelineManager
+    participant MS as MessageStore
+    participant BP as BatchProcessor
+
+    C->>RS: Connect request
+    RS->>CR: Register consumer
+    CR-->>RS: Consumer registered
+    RS-->>C: Connection established
+
+    Note over PM: Message received
+    PM->>MS: Store message
+    MS-->>PM: Message stored
+    PM->>BP: Process message
+    BP-->>PM: Processing complete
+    
+    PM->>CR: Broadcast to group
+    CR->>RS: Send to consumers
+    RS->>C: Deliver message
+    C-->>RS: Acknowledge
+    RS->>CR: Update delivery status
+
+    Note over PM,MS: Message lifecycle complete

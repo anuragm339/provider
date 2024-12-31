@@ -1,0 +1,47 @@
+micronaut:
+  application:
+    name: message-pipeline
+  server:
+    port: 8080
+  executors:
+    messageProcessor:
+      type: fixed
+      nThreads: 4
+      maxPoolSize: 4
+    pipelineWorker:
+      type: fixed
+      nThreads: 4
+      maxPoolSize: 4
+
+sqlite:
+  db-path: /Users/anuragmishra/Desktop/workspace/messaging/aqeduct-provider/message_store.db
+  maxMessages: 1000000
+  maxStorageSize: 1073741824  # 1GB
+  retentionPeriodMs: 86400000 # 24 hours
+  maxPoolSize: 10
+  connectionTimeout: 30000
+  compressionEnabled: true
+
+rsocket:
+  port: 7000
+  transport: TCP
+  maxInboundPayloadSize: 1048576 # 1MB
+
+pipeline:
+  maxConcurrentMessages: 100
+  maxQueueSize: 1000
+  processingTimeoutMs: 10000
+  maxRetryAttempts: 3
+  retryDelayMs: 1000
+  manager:
+    queueCapacity: 1000
+    threadPoolSize: 4
+
+parallel-processing:
+  parallelThreads: 4
+  queueSizePerThread: 25
+  maxBatchSize: 100
+  minBatchSize: 1
+  batchTimeoutMs: 5000
+  maxBatchRetries: 3
+  maintainOrderWithinBatch: true

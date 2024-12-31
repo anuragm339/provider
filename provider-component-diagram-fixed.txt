@@ -1,0 +1,41 @@
+flowchart TB
+    subgraph Provider[Message Provider]
+        direction TB
+        API[PipelineManager Interface]
+        Core[DefaultPipelineManager]
+        
+        subgraph Processing["Processing Layer"]
+            direction TB
+            BP[BatchProcessor]
+            MP[MessageProcessor]
+            MV[MessageValidator]
+        end
+        
+        subgraph Storage["Storage Layer"]
+            direction TB
+            MS[MessageStore]
+            DB[(SQLite)]
+            DM[DatabaseMaintenance]
+        end
+        
+        subgraph Transport["Transport Layer"]
+            direction TB
+            RS[RSocketServer]
+            CR[ConsumerRegistry]
+            CC[ConsumerConnection]
+        end
+    end
+    
+    Consumer["Consumer SDK"]
+    
+    %% Connections
+    API --> Core
+    Core --> BP
+    Core --> MP
+    Core --> MS
+    MP --> MV
+    MS --> DB
+    MS --> DM
+    Core --> CR
+    CR --> CC
+    CC -.->|RSocket Protocol| Consumer

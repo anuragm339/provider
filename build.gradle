@@ -1,0 +1,76 @@
+plugins {
+    id("com.github.johnrengelman.shadow") version "8.1.1"
+    id("io.micronaut.application") version "4.4.4"
+    id("io.micronaut.aot") version "4.4.4"
+    id 'java-library'
+    id 'groovy'
+}
+
+group = 'com.example.messaging'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    //micranout
+    annotationProcessor("io.micronaut:micronaut-http-validation")
+    annotationProcessor("io.micronaut.serde:micronaut-serde-processor")
+    implementation("io.micronaut.serde:micronaut-serde-jackson")
+    compileOnly("io.micronaut:micronaut-http-client")
+    runtimeOnly("ch.qos.logback:logback-classic")
+    testImplementation("io.micronaut:micronaut-http-client")
+
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+    implementation 'org.slf4j:slf4j-api:2.0.9'
+
+    // Database
+    implementation 'org.xerial:sqlite-jdbc:3.47.1.0'
+    implementation 'org.rocksdb:rocksdbjni:8.0.0'   // Specify the version
+
+    // Micronaut
+    implementation 'io.micronaut:micronaut-runtime'
+    implementation 'io.micronaut.sql:micronaut-jdbc-hikari:6.0.2'
+
+    // Metrics & Monitoring
+    implementation 'io.micrometer:micrometer-core:1.14.2'
+    implementation 'io.micronaut.micrometer:micronaut-micrometer-core:5.9.3'
+
+    //Rsocket
+    implementation 'io.rsocket:rsocket-core:1.1.4'
+    implementation 'io.rsocket:rsocket-transport-netty:1.1.4'
+    implementation 'io.projectreactor:reactor-core:3.6.10'
+
+    // SnakeYAML for YAML configuration
+    runtimeOnly("org.yaml:snakeyaml:2.2")
+    implementation files('/Users/anuragmishra/Desktop/workspace/messaging/aqueduct-common/build/libs/aqueduct-common-1.0.0-SNAPSHOT.jar')
+}
+
+test {
+    useJUnitPlatform()
+}
+
+micronaut {
+    runtime("netty")
+    testRuntime("spock2")
+    processing {
+        incremental(true)
+        annotations("com.example.*")
+    }
+    aot {
+        // Please review carefully the optimizations enabled below
+        // Check https://micronaut-projects.github.io/micronaut-aot/latest/guide/ for more details
+        optimizeServiceLoading = false
+        convertYamlToJava = false
+        precomputeOperations = true
+        cacheEnvironment = true
+        optimizeClassLoading = true
+        deduceEnvironment = true
+        optimizeNetty = true
+        replaceLogbackXml = true
+    }
+    application {
+        mainClass.set("com.example.messaging.MessagePipelineApplication") // Replace with your actual main class
+    }
+}
