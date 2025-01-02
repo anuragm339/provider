@@ -23,6 +23,7 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -356,4 +357,96 @@ public class SQLiteMessageStore implements MessageStore {
             }
         }, executor);
     }
+
+    @Override
+    public CompletableFuture<Integer> deleteMessagesWithOffsets(Set<Long> offsets) {
+        return CompletableFuture.supplyAsync(() -> {
+            try (Connection conn = dataSource.getConnection()) {
+                conn.setAutoCommit(false);
+                try {
+                    // First delete from processing_results (dependent table)
+                    int deletedResultsCount = deleteFromProcessingResults(conn, offsets);
+                    logger.debug("Deleted {} entries from processing_results", deletedResultsCount);
+
+                    // Then delete from messages (main table)
+                    int deletedMessagesCount = deleteFromMessages(conn, offsets);
+                    logger.debug("Deleted {} messages", deletedMessagesCount);
+
+                    conn.commit();
+                    return deletedMessagesCount;
+
+                } catch (SQLException e) {
+                    conn.rollback();
+                    logger.error("Failed to delete messages with offsets: {}", offsets, e);
+                    throw new ProcessingException(
+                            "Failed to delete messages",
+                            ErrorCode.PROCESSING_FAILED.getCode(),
+                            true,
+                            e
+                    );
+                }
+            } catch (SQLException e) {
+                throw new ProcessingException(
+                        "Database connection failed during deletion",
+                        ErrorCode.PROCESSING_FAILED.getCode(),
+                        true,
+                        e
+                );
+            }
+        }, executor);
+    }
+
+    private int deleteFromProcessingResults(Connection conn, Set<Long> offsets)
+            throws SQLException {
+        String sql = "DELETE FROM processing_results WHERE msg_offset = ?";
+        int deletedCount = 0;
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            for (Long offset : offsets) {
+                stmt.setLong(1, offset);
+                deletedCount += stmt.executeUpdate();
+            }
+        }
+        return deletedCount;
+    }
+
+    private int deleteFromMessages(Connection conn, Set<Long> offsets)
+            throws SQLException {
+        String sql = "DELETE FROM messages WHERE msg_offset = ?";
+        int deletedCount = 0;
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            for (Long offset : offsets) {
+                stmt.setLong(1, offset);
+                deletedCount += stmt.executeUpdate();
+            }
+        }
+        return deletedCount;
+    }
+
+    // For better performance with large batches
+    private int deleteFromProcessingResultsBatch(Connection conn, Set<Long> offsets)
+            throws SQLException {
+        String sql = "DELETE FROM processing_results WHERE msg_offset IN " +
+                "(SELECT msg_offset FROM messages WHERE msg_offset = ?)";
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            int batchSize = 0;
+            for (Long offset : offsets) {
+                stmt.setLong(1, offset);
+                stmt.addBatch();
+                batchSize++;
+
+                if (batchSize >= 1000) {
+                    stmt.executeBatch();
+                    batchSize = 0;
+                }
+            }
+            if (batchSize > 0) {
+                stmt.executeBatch();
+            }
+        }
+        return offsets.size(); // Approximate count
+    }
+
 }

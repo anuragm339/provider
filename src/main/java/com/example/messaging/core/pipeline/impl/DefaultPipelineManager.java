@@ -181,7 +181,7 @@ public class DefaultPipelineManager implements PipelineManager {
                     int attempts = 0;
                     boolean completed = false;
                     while (attempts < 30 && !completed) { // 30 second timeout
-                        logger.info("Checking completion - Attempt  {} for message:  {}" , message.getMsgOffset());
+                        logger.info("Checking completion - Attempt  {} for message:  {}" , message.getMsgOffset(),message);
 
                         try {
                             CompletableFuture<Optional<ProcessingResult>> resultCheck =

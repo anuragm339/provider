@@ -76,6 +76,7 @@ public class ConsumerRequestHandler implements RSocket {
 
     @Override
     public Mono<Void> fireAndForget(Payload payload) {
+        logger.info("Received fire-and-forget request");
         return Mono.defer(() -> {
             try {
                 ConsumerRequest request = messageCodec.decodeRequest(payload);
@@ -87,6 +88,7 @@ public class ConsumerRequestHandler implements RSocket {
     }
 
     private Mono<Void> handleRequest(ConsumerRequest request) {
+        logger.info("Received fire-and-forget request: {}", request);
         switch (request.getType()) {
             case SUBSCRIBE:
                 return handleSubscribe();

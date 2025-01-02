@@ -1,11 +1,15 @@
 package com.example.messaging.config;
 
+import com.example.messaging.storage.db.rocks.config.RocksConfigFactory;
+import com.example.messaging.storage.db.rocks.config.RocksProperties;
+import com.example.messaging.storage.db.rocks.duplicate.BidirectionalDuplicateHandler;
 import com.example.messaging.storage.db.sqlite.SQLiteConfig;
 import com.example.messaging.storage.service.StorageConfig;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import io.micronaut.context.annotation.Factory;
 import io.micronaut.context.annotation.Primary;
+import io.micronaut.context.annotation.Requires;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,5 +53,4 @@ public class DatabaseFactory {
             throw new IllegalStateException("Failed to create database directory for path: " + dbPath, e);
         }
     }
-
 }

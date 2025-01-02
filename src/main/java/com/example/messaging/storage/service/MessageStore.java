@@ -5,6 +5,7 @@ import com.example.messaging.core.pipeline.service.ProcessingResult;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 public interface MessageStore {
@@ -66,4 +67,7 @@ public interface MessageStore {
      * @return true if store is healthy
      */
     boolean isHealthy();
+
+    CompletableFuture<Integer> deleteMessagesWithOffsets(Set<Long> offsetsToDelete);
+
 }

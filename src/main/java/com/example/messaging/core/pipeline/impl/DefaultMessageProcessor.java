@@ -12,6 +12,7 @@ import com.example.messaging.exceptions.ValidationException;
 import com.example.messaging.exceptions.VerificationException;
 import com.example.messaging.models.Message;
 
+import com.example.messaging.storage.db.rocks.duplicate.BidirectionalDuplicateHandler;
 import com.example.messaging.storage.service.MessageStore;
 import com.example.messaging.transport.rsocket.consumer.ConsumerConnection;
 import com.example.messaging.transport.rsocket.consumer.ConsumerRegistry;
@@ -46,6 +47,7 @@ public class DefaultMessageProcessor implements MessageProcessor {
     private final AtomicBoolean operational;
     private final MessagePublisher messagePublisher;
     private final ConsumerRegistry consumerRegistry;
+    private final BidirectionalDuplicateHandler bidirectionalDuplicateHandler;
 
     public DefaultMessageProcessor(
             MessageValidator validator,
@@ -53,7 +55,8 @@ public class DefaultMessageProcessor implements MessageProcessor {
             Executor executor,
             MessageStore messageStore,
             MessagePublisher messagePublisher,
-            ConsumerRegistry consumerRegistry) {
+            ConsumerRegistry consumerRegistry,
+            BidirectionalDuplicateHandler bidirectionalDuplicateHandler) {
         this.validator = validator;
         this.config = config;
         this.executor = executor;
@@ -62,6 +65,7 @@ public class DefaultMessageProcessor implements MessageProcessor {
         this.operational = new AtomicBoolean(true);
         this.messagePublisher = messagePublisher;
         this.consumerRegistry=consumerRegistry;
+        this.bidirectionalDuplicateHandler=bidirectionalDuplicateHandler;
     }
 
 
@@ -121,6 +125,8 @@ public class DefaultMessageProcessor implements MessageProcessor {
     }
 
     private void processMessageContent(Message message) {
+        //store the message in the duplicate handler
+        bidirectionalDuplicateHandler.checkAndUpdate(message);
         // Placeholder for actual message processing logic
         // This would be implemented based on business requirements
         messagePublisher.publishMessage(message, "group-1")

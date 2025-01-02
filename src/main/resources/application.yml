@@ -45,3 +45,30 @@ parallel-processing:
   batchTimeoutMs: 5000
   maxBatchRetries: 3
   maintainOrderWithinBatch: true
+rocks:
+  storage:
+    db-path: /Users/anuragmishra/Desktop/workspace/messaging/aqeduct-provider/rocksdb
+    max-storage-size: ${ROCKS_MAX_STORAGE:1073741824}  # 1GB
+    compression: true
+    compression-type: LZ4
+    enable-wal: true
+
+  performance:
+    write-buffer-size: 67108864  # 64MB
+    max-write-buffer-number: 3
+    max-background-compactions: 4
+    block-cache-size: 33554432  # 32MB
+    block-size: 16384  # 16KB
+    verify-checksums: true
+
+  tuning:
+    target-file-size-base: 67108864  # 64MB
+    max-bytes-for-level-base: 268435456  # 256MB
+    num-levels: 7
+    level-multiplier: 10
+
+  maintenance:
+    cleanup-interval-hours: 1
+    cleanup-batch-size: 1000
+    auto-compaction: true
+    max-compaction-threads: 2
