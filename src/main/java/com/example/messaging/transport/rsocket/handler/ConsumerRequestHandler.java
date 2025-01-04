@@ -9,6 +9,7 @@ import io.rsocket.RSocket;
 import io.rsocket.Payload;
 import io.rsocket.util.DefaultPayload;
 import jakarta.inject.Inject;
+import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import org.slf4j.Logger;
@@ -27,58 +28,26 @@ public class ConsumerRequestHandler implements RSocket {
         this.replayRequestHandler = replayRequestHandler;
     }
 
-
-
-
     @Override
-    public Flux<Payload> requestStream(Payload payload) {
-        return Flux.defer(() -> {
-            try {
-                ConsumerRequest request = messageCodec.decodeRequest(payload);
-                return handleStreamRequest(request);
-            } finally {
-                payload.release();
-            }
-        });
-    }
-
-    private Flux<Payload> handleStreamRequest(ConsumerRequest request) {
-        switch (request.getType()) {
-            case CONSUME:
-                return handleConsumeRequest(request);
-            case REPLAY:
-                return handleReplayRequest((ReplayRequest) request);
-            default:
-                return Flux.error(new IllegalArgumentException("Unknown request type: " + request.getType()));
-        }
-    }
-
-    private Flux<Payload> handleConsumeRequest(ConsumerRequest request) {
-        connection.getMetadata().setState(ConsumerState.CONSUMING);
-        logger.info("Consumer {} starting consumption", connection.getMetadata().getConsumerId());
-
-        // Return a Flux that emits messages as they arrive
-        return Flux.<Payload>create(sink -> {
-            // Here you would set up message delivery to this consumer
-            // This might involve registering a callback with the MessagePublisher
-            // For now, just keep the stream open
-            sink.onCancel(() -> {
-                connection.getMetadata().setState(ConsumerState.CONNECTED);
-                logger.info("Consumer {} stopped consumption", connection.getMetadata().getConsumerId());
-            });
-        });
-    }
-
-    private Flux<Payload> handleReplayRequest(ReplayRequest request) {
-        connection.getMetadata().setState(ConsumerState.REPLAYING);
-        return null;
+    public Flux<Payload> requestChannel(Publisher<Payload> payloads) {
+        return Flux.from(payloads)
+                .doOnNext(payload -> {
+                    try {
+                        String data = payload.getDataUtf8();
+                        logger.info("Received ack in provider: {}", data);
+                        // Process acknowledgment
+                    } finally {
+                        payload.release();
+                    }
+                });
     }
 
     @Override
     public Mono<Void> fireAndForget(Payload payload) {
-        logger.info("Received fire-and-forget request");
         return Mono.defer(() -> {
             try {
+                String data = payload.getDataUtf8();
+                logger.info("Received fire-and-forget request: {}", data);
                 ConsumerRequest request = messageCodec.decodeRequest(payload);
                 return handleRequest(request);
             } finally {
@@ -87,8 +56,22 @@ public class ConsumerRequestHandler implements RSocket {
         });
     }
 
+    @Override
+    public Flux<Payload> requestStream(Payload payload) {
+        return Flux.defer(() -> {
+            try {
+                String data = payload.getDataUtf8();
+                logger.info("Received stream request: {}", data);
+                ConsumerRequest request = messageCodec.decodeRequest(payload);
+                return handleStreamRequest(request);
+            } finally {
+                payload.release();
+            }
+        });
+    }
+
     private Mono<Void> handleRequest(ConsumerRequest request) {
-        logger.info("Received fire-and-forget request: {}", request);
+        logger.info("Handling request: {}", request.getType());
         switch (request.getType()) {
             case SUBSCRIBE:
                 return handleSubscribe();
@@ -98,6 +81,18 @@ public class ConsumerRequestHandler implements RSocket {
                 return handleAcknowledge(request);
             default:
                 return Mono.error(new IllegalArgumentException("Unknown request type: " + request.getType()));
+        }
+    }
+
+    private Flux<Payload> handleStreamRequest(ConsumerRequest request) {
+        logger.info("Handling stream request: {}", request.getType());
+        switch (request.getType()) {
+            case CONSUME:
+                return handleConsumeRequest(request);
+            case REPLAY:
+                return handleReplayRequest((ReplayRequest) request);
+            default:
+                return Flux.error(new IllegalArgumentException("Unknown request type: " + request.getType()));
         }
     }
 
@@ -114,8 +109,18 @@ public class ConsumerRequestHandler implements RSocket {
     }
 
     private Mono<Void> handleAcknowledge(ConsumerRequest request) {
-        logger.debug("Received acknowledgment from consumer: {}",
-                connection.getMetadata().getConsumerId());
+        logger.info("Received acknowledgment from consumer: {}", connection.getMetadata().getConsumerId());
         return Mono.empty();
+    }
+
+    private Flux<Payload> handleConsumeRequest(ConsumerRequest request) {
+        connection.getMetadata().setState(ConsumerState.CONSUMING);
+        logger.info("Starting consumption for consumer: {}", connection.getMetadata().getConsumerId());
+        return Flux.empty(); // Keep stream open for messages
+    }
+
+    private Flux<Payload> handleReplayRequest(ReplayRequest request) {
+        connection.getMetadata().setState(ConsumerState.REPLAYING);
+        return Flux.empty(); // Implement replay logic
     }
 }

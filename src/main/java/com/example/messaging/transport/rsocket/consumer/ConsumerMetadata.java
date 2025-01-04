@@ -1,25 +1,38 @@
 package com.example.messaging.transport.rsocket.consumer;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class ConsumerMetadata {
-    private final String consumerId;
-    private final String groupId;
-    private final Map<String, String> properties;
-    private final Instant connectedAt;
+    private  String consumerId;
+    private  String groupId;
+    private  Map<String, String> properties;
+    private  Instant connectedAt;
     private ConsumerState state;
 
-    public ConsumerMetadata(String consumerId, String groupId) {
+    public void setConsumerId(String consumerId) {
         this.consumerId = consumerId;
-        this.groupId = groupId;
-        this.properties = new ConcurrentHashMap<>();
-        this.connectedAt = Instant.now();
-        this.state = ConsumerState.CONNECTED;
     }
 
+    public void setGroupId(String groupId) {
+        this.groupId = groupId;
+    }
 
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public void setProperties(Map<String, String> properties) {
+        this.properties = properties;
+    }
+
+    public void setConnectedAt(Instant connectedAt) {
+        this.connectedAt = connectedAt;
+    }
 
     // Getters and state management methods
     public String getConsumerId() { return consumerId; }

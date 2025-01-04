@@ -15,6 +15,8 @@ import io.rsocket.RSocket;
 import io.rsocket.SocketAcceptor;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 
 import java.io.DataInput;
@@ -23,6 +25,7 @@ import java.util.Map;
 
 @Singleton
 public class ConnectionAcceptor implements SocketAcceptor {
+    private static final Logger logger = LoggerFactory.getLogger(ConnectionAcceptor.class);
 
     private final ConsumerRegistry consumerRegistry;
     private final MessageCodec messageCodec;
@@ -42,42 +45,25 @@ public class ConnectionAcceptor implements SocketAcceptor {
     public Mono<RSocket> accept(ConnectionSetupPayload setup, RSocket sendingSocket) {
         return Mono.defer(() -> {
             try {
-                String consumerMetaData = getConsumerId(setup);
-                Map consumerConnection = new ObjectMapper().readValue(consumerMetaData, Map.class);
+                ConsumerMetadata metadata = new ObjectMapper().readValue(setup.getMetadataUtf8(), ConsumerMetadata.class);
 
-                // Validate protocol version
-                if (!isValidProtocolVersion(setup)) {
-                    return Mono.error(new ConnectionException(
-                            "Unsupported protocol version",
-                            ErrorCode.CONNECTION_FAILED.getCode()
-                    ));
-                }
 
-                // Create consumer metadata and connection
-                ConsumerMetadata metadata = new ConsumerMetadata(consumerMetaData, consumerConnection.get("groupId").toString());
+                // Create consumer connection
                 ConsumerConnection connection = new ConsumerConnection(metadata, sendingSocket, messageCodec);
 
-                // Register the consumer
+                // Create handler
+                ConsumerRequestHandler handler = new ConsumerRequestHandler(connection, messageCodec, replayRequestHandler);
+
+                // Register consumer AFTER creating handler
                 consumerRegistry.registerConsumer(connection);
 
-                // Create and return the request handler
-                ConsumerRequestHandler handler = new ConsumerRequestHandler(
-                        connection,
-                        messageCodec,
-                        replayRequestHandler
-                );
+                logger.info("Created RSocket handler for consumer: {}", metadata.getConsumerId());
 
-                System.out.println("Consumer connected: " + consumerMetaData + " (group: " + consumerConnection + ")");
+                // This is important - return the handler
                 return Mono.just(handler);
-
             } catch (Exception e) {
-                System.out.println("Failed to establish connection: " + e.getMessage());
-                e.printStackTrace();
-                return Mono.error(new ConnectionException(
-                        "Failed to establish connection",
-                        ErrorCode.CONNECTION_FAILED.getCode(),
-                        e
-                ));
+                logger.error("Failed to accept connection", e);
+                return Mono.error(e);
             }
         });
     }

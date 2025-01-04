@@ -72,18 +72,16 @@ public class ConsumerRegistry {
                 groupId, message.getMessageId(), consumers.size());
 
         return Flux.fromIterable(consumers)
-                .flatMap(consumerId ->
-                        sendToConsumer(consumerId, message)
-                                .doOnSuccess(__ ->
-                                        logger.info("Successfully delivered message {} to consumer {}",
-                                                message.getMessageId(), consumerId))
-                                .doOnError(error ->
-                                        logger.error("Failed to deliver message {} to consumer {}: {}",
-                                                message.getMessageId(), consumerId, error.getMessage()))
-                )
-                .doOnComplete(() ->
-                        logger.info("Completed broadcast of message {} to group {}",
-                                message.getMessageId(), groupId))
+                .flatMap(consumerId -> {
+                    ConsumerConnection connection = consumerConnections.get(consumerId);
+                    if (connection != null && connection.isActive()) {
+                        return connection.sendMessage(message)
+                                .doOnSuccess(__ -> logger.info("Successfully sent message to consumer {}", consumerId))
+                                .doOnError(error -> logger.error("Failed to send message to consumer {}: {}",
+                                        consumerId, error.getMessage()));
+                    }
+                    return Mono.empty();
+                })
                 .then();
     }
 

@@ -1,8 +1,14 @@
 package com.example.messaging.transport.rsocket.consumer;
 
+import com.example.messaging.transport.rsocket.handler.ConsumerRequestHandler;
+import com.example.messaging.transport.rsocket.handler.ReplayRequestHandler;
 import com.example.messaging.transport.rsocket.model.TransportMessage;
 import com.example.messaging.transport.rsocket.protocol.MessageCodec;
+import io.netty.buffer.ByteBuf;
+import io.rsocket.Payload;
 import io.rsocket.RSocket;
+import io.rsocket.util.DefaultPayload;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,12 +19,13 @@ public class ConsumerConnection {
     private final ConsumerMetadata metadata;
     private final RSocket rSocket;
     private final MessageCodec messageCodec;
-    private final boolean active = true;
+    private final ConsumerRequestHandler requestHandler;
 
     public ConsumerConnection(ConsumerMetadata metadata, RSocket rSocket, MessageCodec messageCodec) {
         this.metadata = metadata;
         this.rSocket = rSocket;
         this.messageCodec = messageCodec;
+        this.requestHandler = new ConsumerRequestHandler(this, messageCodec, null);
 
         // Monitor connection
         rSocket.onClose()
@@ -34,37 +41,20 @@ public class ConsumerConnection {
             return Mono.empty();
         }
 
-        logger.info("Preparing to send message {} to consumer {}",
-                message.getMessageId(), metadata.getConsumerId());
+        logger.info("Preparing to send message {} to consumer {}", message.getMessageId(), metadata.getConsumerId());
+        Payload messagePayload = DefaultPayload.create(messageCodec.encodeMessage(message));
 
-        return Mono.create(sink -> {
-            try {
-                logger.debug("Encoding message {} for consumer {}",
-                        message.getMessageId(), metadata.getConsumerId());
-
-                var encodedMessage = messageCodec.encodeMessage(message);
-
-                logger.debug("Sending encoded message {} to consumer {}",
-                        message.getMessageId(), metadata.getConsumerId());
-
-                rSocket.requestResponse(io.rsocket.util.DefaultPayload.create(encodedMessage))
-                        .doOnSuccess(__ -> {
-                            logger.info("Successfully sent message {} to consumer {}",
-                                    message.getMessageId(), metadata.getConsumerId());
-                            sink.success();
-                        })
-                        .doOnError(error -> {
-                            logger.error("Failed to send message {} to consumer {}: {}",
-                                    message.getMessageId(), metadata.getConsumerId(), error.getMessage());
-                            sink.error(error);
-                        })
-                        .subscribe();
-            } catch (Exception e) {
-                logger.error("Error preparing message {} for consumer {}",
-                        message.getMessageId(), metadata.getConsumerId(), e);
-                sink.error(e);
-            }
-        });
+        return rSocket.requestChannel(Flux.just(messagePayload))
+                .doOnNext(response -> {
+                    try {
+                        String data = response.getDataUtf8();
+                        logger.info("Received channel response: {}", data);
+                        requestHandler.requestChannel(Flux.just(response)).subscribe();
+                    } finally {
+                        response.release();
+                    }
+                })
+                .then(Mono.fromRunnable(() -> messagePayload.release()));
     }
 
     public ConsumerMetadata getMetadata() {
@@ -72,7 +62,7 @@ public class ConsumerConnection {
     }
 
     public boolean isActive() {
-        return active && !rSocket.isDisposed();
+        return !rSocket.isDisposed();
     }
 
     public void disconnect() {

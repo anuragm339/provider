@@ -5,8 +5,6 @@ import com.example.messaging.storage.service.MessageStore;
 import com.example.messaging.models.Message;
 import com.example.messaging.exceptions.ProcessingException;
 import com.example.messaging.exceptions.ErrorCode;
-import jakarta.inject.Named;
-import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
