@@ -41,7 +41,7 @@ public class ConsumerRegistry {
         consumerGroups.computeIfAbsent(groupId, k -> ConcurrentHashMap.newKeySet())
                 .add(consumerId);
 
-        logger.info("Consumer registered - ID: {}, Group: {}", consumerId, groupId);
+        logger.debug("Consumer registered - ID: {}, Group: {}", consumerId, groupId);
         // Process any pending messages for this consumer's group
         deliverPendingMessages(groupId);
     }
@@ -56,7 +56,7 @@ public class ConsumerRegistry {
             });
 
             connection.disconnect();
-            logger.info("Consumer unregistered - ID: {}, Group: {}", consumerId, groupId);
+            logger.debug("Consumer unregistered - ID: {}, Group: {}", consumerId, groupId);
         }
     }
 
@@ -68,7 +68,7 @@ public class ConsumerRegistry {
             return Mono.empty();
         }
 
-        logger.info("Starting broadcast to group: {} for message: {}, Active consumers: {}",
+        logger.debug("Starting broadcast to group: {} for message: {}, Active consumers: {}",
                 groupId, message.getMessageId(), consumers.size());
 
         return Flux.fromIterable(consumers)
@@ -76,7 +76,7 @@ public class ConsumerRegistry {
                     ConsumerConnection connection = consumerConnections.get(consumerId);
                     if (connection != null && connection.isActive()) {
                         return connection.sendMessage(message)
-                                .doOnSuccess(__ -> logger.info("Successfully sent message to consumer {}", consumerId))
+                                .doOnSuccess(__ -> logger.debug("Successfully sent message to consumer {}", consumerId))
                                 .doOnError(error -> logger.error("Failed to send message to consumer {}: {}",
                                         consumerId, error.getMessage()));
                     }
@@ -128,13 +128,13 @@ public class ConsumerRegistry {
     }
 
     private void deliverPendingMessages(String groupId) {
-        logger.info("Checking pending messages for group: {}", groupId);
+        logger.debug("Checking pending messages for group: {}", groupId);
 
         pendingMessages.removeIf(pending -> {
             if (pending.groupId.equals(groupId)) {
                 Set<String> consumers = getGroupMembers(groupId);
                 if (!consumers.isEmpty()) {
-                    logger.info("Delivering pending message to group: {}", groupId);
+                    logger.debug("Delivering pending message to group: {}", groupId);
                     broadcastToGroup(groupId, pending.message).subscribe();
                     return true; // Remove this message from pending queue
                 }

@@ -26,7 +26,7 @@ public class ReplayRequestHandler {
     }
 
     public Flux<Void> handleReplayRequest(ReplayRequest request, ConsumerConnection connection) {
-        logger.info("Processing replay request for consumer: {} from offset {} to {}",
+        logger.debug("Processing replay request for consumer: {} from offset {} to {}",
                 connection.getMetadata().getConsumerId(),
                 request.getFromOffset(),
                 request.getToOffset());
@@ -36,7 +36,7 @@ public class ReplayRequestHandler {
         return Flux.range(0, calculateBatches(request, batchSize))
                 .flatMap(batchIndex -> processBatch(request, batchIndex, batchSize, connection))
                 .doOnComplete(() ->
-                        logger.info("Replay completed for consumer: {}",
+                        logger.debug("Replay completed for consumer: {}",
                                 connection.getMetadata().getConsumerId()))
                 .doOnError(error ->
                         logger.error("Error during replay for consumer: {}",

@@ -24,17 +24,17 @@ public class MessagePublisher {
     }
 
     public Mono<Void> publishMessage(Message message, String groupId) {
-        logger.info("Publishing message {} to group {}", message.getMsgOffset(), groupId);
+        logger.debug("Publishing message {} to group {}", message.getMsgOffset(), groupId);
 
         try {
             TransportMessage transportMessage = new TransportMessage(message);
             return consumerRegistry.broadcastToGroup(groupId, transportMessage)
                     .timeout(PUBLISH_TIMEOUT)
                     .doOnSubscribe(__ ->
-                            logger.info("Starting broadcast of message {} to group {}",
+                            logger.debug("Starting broadcast of message {} to group {}",
                                     message.getMsgOffset(), groupId))
                     .doOnSuccess(__ ->
-                            logger.info("Successfully broadcast message {} to group {}",
+                            logger.debug("Successfully broadcast message {} to group {}",
                                     message.getMsgOffset(), groupId))
                     .doOnError(error ->
                             logger.error("Failed to broadcast message {} to group {}: {}",
@@ -50,17 +50,17 @@ public class MessagePublisher {
     }
 
     public Mono<Void> publishToConsumer(Message message, String consumerId) {
-        logger.info("Publishing message {} to consumer {}", message.getMsgOffset(), consumerId);
+        logger.debug("Publishing message {} to consumer {}", message.getMsgOffset(), consumerId);
 
         try {
             TransportMessage transportMessage = new TransportMessage(message);
             return consumerRegistry.sendToConsumer(consumerId, transportMessage)
                     .timeout(PUBLISH_TIMEOUT)
                     .doOnSubscribe(__ ->
-                            logger.info("Starting send of message {} to consumer {}",
+                            logger.debug("Starting send of message {} to consumer {}",
                                     message.getMsgOffset(), consumerId))
                     .doOnSuccess(__ ->
-                            logger.info("Successfully sent message {} to consumer {}",
+                            logger.debug("Successfully sent message {} to consumer {}",
                                     message.getMsgOffset(), consumerId))
                     .doOnError(error ->
                             logger.error("Failed to send message {} to consumer {}: {}",

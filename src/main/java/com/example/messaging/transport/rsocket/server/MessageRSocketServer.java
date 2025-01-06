@@ -32,7 +32,7 @@ public class MessageRSocketServer {
                 .bind(TcpServerTransport.create(config.getPort()))
                 .doOnSuccess(closeable -> {
                     this.server = closeable;
-                    logger.info("RSocket server successfully bound to port " , config.getPort());
+                    logger.debug("RSocket server successfully bound to port " , config.getPort());
                 })
                 .doOnError(error ->{
                     logger.error("Failed to start RSocket server: " , error.getMessage());
@@ -45,7 +45,7 @@ public class MessageRSocketServer {
         return Mono.fromRunnable(() -> {
             if (server != null) {
                 server.dispose();
-                logger.info("RSocket server stopped");
+                logger.debug("RSocket server stopped");
             }
         });
     }

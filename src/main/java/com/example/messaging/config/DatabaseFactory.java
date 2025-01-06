@@ -44,7 +44,7 @@ public class DatabaseFactory {
             if (dbDir != null && !dbDir.exists()) {
                 boolean created = dbDir.mkdirs();
                 if (created) {
-                    logger.info("Created database directory: {}", dbDir.getAbsolutePath());
+                    logger.debug("Created database directory: {}", dbDir.getAbsolutePath());
                 } else {
                     logger.warn("Failed to create database directory: {}", dbDir.getAbsolutePath());
                 }

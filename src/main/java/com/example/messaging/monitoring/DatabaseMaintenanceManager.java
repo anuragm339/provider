@@ -74,7 +74,7 @@ public class DatabaseMaintenanceManager {
             maintainIndexes();
 
             lastMaintenanceTime.set(System.currentTimeMillis() - startTime);
-            logger.info("Database maintenance completed successfully");
+            logger.debug("Database maintenance completed successfully");
         } catch (Exception e) {
             logger.error("Database maintenance failed", e);
         } finally {
@@ -97,7 +97,7 @@ public class DatabaseMaintenanceManager {
             stmt.execute("VACUUM");
 
             lastCompactionTime.set(System.currentTimeMillis() - startTime);
-            logger.info("Database compaction completed in {}ms", lastCompactionTime.get());
+            logger.debug("Database compaction completed in {}ms", lastCompactionTime.get());
         } catch (SQLException e) {
             logger.error("Database compaction failed", e);
             throw new ProcessingException(
@@ -130,7 +130,7 @@ public class DatabaseMaintenanceManager {
             }
 
             lastIntegrityCheckTime.set(System.currentTimeMillis() - startTime);
-            logger.info("Database integrity check passed in {}ms", lastIntegrityCheckTime.get());
+            logger.debug("Database integrity check passed in {}ms", lastIntegrityCheckTime.get());
         } catch (SQLException e) {
             logger.error("Database integrity check failed", e);
             throw new ProcessingException(
@@ -165,7 +165,7 @@ public class DatabaseMaintenanceManager {
             stmt.execute("ANALYZE");
 
             lastIndexMaintenanceTime.set(System.currentTimeMillis() - startTime);
-            logger.info("Index maintenance completed for {} indexes in {}ms",
+            logger.debug("Index maintenance completed for {} indexes in {}ms",
                     indexes.size(), lastIndexMaintenanceTime.get());
         } catch (SQLException e) {
             logger.error("Index maintenance failed", e);

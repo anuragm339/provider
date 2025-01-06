@@ -64,7 +64,7 @@ public class SQLiteTableManager {
                 }
 
                 conn.commit();
-                logger.info("Database tables initialized successfully");
+                logger.debug("Database tables initialized successfully");
             } catch (SQLException e) {
                 conn.rollback();
                 throw e;
@@ -96,7 +96,7 @@ public class SQLiteTableManager {
                 FROM processing_results WHERE 1=0
                 """).executeQuery();
 
-            logger.info("Database schema validation successful");
+            logger.debug("Database schema validation successful");
         } catch (SQLException e) {
             logger.error("Database schema validation failed", e);
             throw new ProcessingException(
@@ -138,7 +138,7 @@ public class SQLiteTableManager {
                 }
 
                 conn.commit();
-                logger.info("Database cleanup completed successfully");
+                logger.debug("Database cleanup completed successfully");
             } catch (SQLException e) {
                 conn.rollback();
                 throw e;

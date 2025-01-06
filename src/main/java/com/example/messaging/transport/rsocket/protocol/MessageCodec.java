@@ -21,7 +21,7 @@ public class MessageCodec {
     public MessageCodec() {
         this.objectMapper = new ObjectMapper()
                 .registerModule(new JavaTimeModule());  // Add support for Java 8 date/time types
-        logger.info("MessageCodec initialized with Java Time support");
+        logger.debug("MessageCodec initialized with Java Time support");
     }
 
     public ByteBuf encodeMessage(TransportMessage message) {
@@ -55,7 +55,14 @@ public class MessageCodec {
         try {
             String requestData = payload.getDataUtf8();
             logger.debug("Decoding request: {}", requestData);
-
+            if (requestData == null || requestData.isEmpty()) {
+                // Handle empty request - maybe return default request
+                return new ConsumerRequest(
+                        "DEFAULT",
+                        RequestType.CONSUME,
+                        null
+                );
+            }
             // First decode as generic request to get type
             ConsumerRequest baseRequest = objectMapper.readValue(requestData, ConsumerRequest.class);
 

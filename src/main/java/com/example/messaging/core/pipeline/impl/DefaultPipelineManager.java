@@ -73,7 +73,7 @@ public class DefaultPipelineManager implements PipelineManager {
         status.set(PipelineStatus.STARTING);
         startProcessing();
         status.set(PipelineStatus.RUNNING);
-        logger.info("Pipeline started successfully");
+        logger.debug("Pipeline started successfully");
     }
 
     @Override
@@ -111,11 +111,11 @@ public class DefaultPipelineManager implements PipelineManager {
                 //read the message from controller and start
                 Message message = messageQueue.poll(100, TimeUnit.MILLISECONDS);
                 if (message != null) {
-                    logger.info("Processing message from queue with offset: {} " , message.getMsgOffset());
+                    logger.debug("Processing message from queue with offset: {} " , message.getMsgOffset());
                     processMessage(message)
                             .thenAccept(result -> {
 
-                                logger.info("Successfully processed message:  {} " , message.getMsgOffset());
+                                logger.debug("Successfully processed message:  {} " , message.getMsgOffset());
                             })
                             .exceptionally(throwable -> {
                                logger.error("Failed to process message: {} {} " , message.getMsgOffset() +
@@ -158,7 +158,7 @@ public class DefaultPipelineManager implements PipelineManager {
         CompletableFuture<Long> resultFuture = new CompletableFuture<>();
 
         try {
-            logger.info("Attempting to queue message with offset:  {} " , message.getMsgOffset());
+            logger.debug("Attempting to queue message with offset:  {} " , message.getMsgOffset());
             if (!messageQueue.offer(message, 5, TimeUnit.SECONDS)) {
                 System.out.println("Failed to queue message after timeout");
                 return CompletableFuture.failedFuture(
@@ -169,28 +169,28 @@ public class DefaultPipelineManager implements PipelineManager {
                         )
                 );
             }
-            logger.info("Message successfully queued:  {} " , message.getMsgOffset());
+            logger.debug("Message successfully queued:  {} " , message.getMsgOffset());
 
             // Start a completion checker
-            logger.info("Starting completion checker for message: {}" , message.getMsgOffset());
+            logger.debug("Starting completion checker for message: {}" , message.getMsgOffset());
             completionExecutor.execute(() -> {
                 try {
-                    logger.info("Completion checker started for message: {}" , message.getMsgOffset());
+                    logger.debug("Completion checker started for message: {}" , message.getMsgOffset());
                     int attempts = 0;
                     boolean completed = false;
                     while (attempts < 30 && !completed) { // 30 second timeout
-                        logger.info("Checking completion - Attempt  {} for message:  {}" , message.getMsgOffset(),message);
+                        logger.debug("Checking completion - Attempt  {} for message:  {}" , message.getMsgOffset(),message);
 
                         try {
                             CompletableFuture<Optional<ProcessingResult>> resultCheck =
                                     messageStore.getProcessingResult(message.getMsgOffset());
-                            logger.info("Got result check future for message: {}" , message.getMsgOffset());
+                            logger.debug("Got result check future for message: {}" , message.getMsgOffset());
 
                             Optional<ProcessingResult> result = resultCheck.get(1, TimeUnit.SECONDS);
                             if (result.isPresent()) {
-                                logger.info("Found processing result for message:  {} " , message.getMsgOffset());
+                                logger.debug("Found processing result for message:  {} " , message.getMsgOffset());
                                 if (result.get().isSuccessful()) {
-                                    logger.info("Message processing confirmed successful: {} " , message.getMsgOffset());
+                                    logger.debug("Message processing confirmed successful: {} " , message.getMsgOffset());
                                     resultFuture.complete(message.getMsgOffset());
                                     completed = true;
                                 } else {
@@ -205,7 +205,7 @@ public class DefaultPipelineManager implements PipelineManager {
                                     completed = true;
                                 }
                             } else {
-                                logger.info("No processing result found yet for message {}  attempt {} " + message.getMsgOffset() ,
+                                logger.debug("No processing result found yet for message {}  attempt {} " + message.getMsgOffset() ,
                                          attempts);
                             }
                         } catch (Exception e) {
@@ -214,7 +214,7 @@ public class DefaultPipelineManager implements PipelineManager {
                         }
 
                         if (!completed) {
-                            logger.info("Waiting before next check attempt...");
+                            logger.debug("Waiting before next check attempt...");
                             Thread.sleep(1000);
                             attempts++;
                         }
@@ -287,15 +287,15 @@ public class DefaultPipelineManager implements PipelineManager {
     private CompletableFuture<Long> processMessage(Message message) {
         return messageStore.store(message)
                 .thenCompose(storedOffset -> {
-                    logger.info("Message stored with offset: {} " + storedOffset);
+                    logger.debug("Message stored with offset: {} " + storedOffset);
 
                     // Then process the message
                     return messageProcessor.processMessage(message)
                             .thenCompose(result -> {
-                                logger.info("Message processor completed for offset: {} " , message.getMsgOffset());
+                                logger.debug("Message processor completed for offset: {} " , message.getMsgOffset());
                                 try {
                                     // Store the processing result
-                                    logger.info("Storing result for message: {} " , message.getMsgOffset());
+                                    logger.debug("Storing result for message: {} " , message.getMsgOffset());
                                     return messageStore.storeProcessingResult(result)
                                             .thenApply(v -> message.getMsgOffset());
                                 } catch (Exception e) {

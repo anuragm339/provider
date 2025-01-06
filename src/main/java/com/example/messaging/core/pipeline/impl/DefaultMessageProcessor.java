@@ -130,12 +130,12 @@ public class DefaultMessageProcessor implements MessageProcessor {
         // Placeholder for actual message processing logic
         // This would be implemented based on business requirements
         messagePublisher.publishMessage(message, "group-1")
-                .doOnSubscribe(__ -> logger.info("Starting publish for message {}", message.getMsgOffset()))
-                .doOnSuccess(__ -> logger.info("Message {} published successfully", message.getMsgOffset()))
+                .doOnSubscribe(__ -> logger.debug("Starting publish for message {}", message.getMsgOffset()))
+                .doOnSuccess(__ -> logger.debug("Message {} published successfully", message.getMsgOffset()))
                 .doOnError(error -> logger.error("Failed to publish message {}: {}",
                         message.getMsgOffset(), error.getMessage()))
                 .block();
-        logger.info("Message {} processing complete", message.getMsgOffset());
+        logger.debug("Message {} processing complete", message.getMsgOffset());
     }
 
     private ProcessingResult createFailureResult(Message message, Exception e) {
@@ -160,7 +160,7 @@ public class DefaultMessageProcessor implements MessageProcessor {
     @Override
     public CompletableFuture<ProcessingResult> processMessage(Message message) {
         if (!canAccept()) {
-            logger.info("MessageProcessor cannot accept more messages");
+            logger.debug("MessageProcessor cannot accept more messages");
             return CompletableFuture.failedFuture(
                     new ResourceExhaustedException(
                             "Processor cannot accept more messages",
@@ -172,20 +172,20 @@ public class DefaultMessageProcessor implements MessageProcessor {
         return CompletableFuture.supplyAsync(() -> {
             ProcessingResult result = null;
             try {
-                logger.info("MessageProcessor: Starting processing for message: {}" , message.getMsgOffset());
+                logger.debug("MessageProcessor: Starting processing for message: {}" , message.getMsgOffset());
                 activeProcessingCount.incrementAndGet();
 
-                logger.info("MessageProcessor: Validating message: {}" , message.getMsgOffset());
+                logger.debug("MessageProcessor: Validating message: {}" , message.getMsgOffset());
                 validator.validate(message);
 
-                logger.info("MessageProcessor: Processing with retry: {}" , message.getMsgOffset());
+                logger.debug("MessageProcessor: Processing with retry: {}" , message.getMsgOffset());
                 result = processWithRetry(message);
 
-                logger.info("MessageProcessor: Starting to store result in database for offset: {}" , result.getOffset());
+                logger.debug("MessageProcessor: Starting to store result in database for offset: {}" , result.getOffset());
                 storeResult(result);
-                logger.info("MessageProcessor: Successfully stored result in database for offset: {}" , result.getOffset());
+                logger.debug("MessageProcessor: Successfully stored result in database for offset: {}" , result.getOffset());
 
-                logger.info("MessageProcessor: Processing complete for: {}" , message.getMsgOffset());
+                logger.debug("MessageProcessor: Processing complete for: {}" , message.getMsgOffset());
                 return result;
 
             } catch (Exception e) {
@@ -208,11 +208,11 @@ public class DefaultMessageProcessor implements MessageProcessor {
 
     private void storeResult(ProcessingResult result) {
         try {
-            logger.info("Starting to store result in database for offset: {}" , result.getOffset());
+            logger.debug("Starting to store result in database for offset: {}" , result.getOffset());
             messageStore.storeProcessingResult(result).join();
-            logger.info("Successfully stored result in database for offset:{}  " , result.getOffset());
+            logger.debug("Successfully stored result in database for offset:{}  " , result.getOffset());
         } catch (Exception e) {
-            logger.info("Failed to store processing result for offset: {}" , result.getOffset());
+            logger.debug("Failed to store processing result for offset: {}" , result.getOffset());
             e.printStackTrace();
             throw new ProcessingException(
                     "Failed to store processing result",
@@ -260,7 +260,7 @@ public class DefaultMessageProcessor implements MessageProcessor {
                 return false;
             }
 
-            logger.info("Successfully verified message processing: {}", messageOffset);
+            logger.debug("Successfully verified message processing: {}", messageOffset);
             return true;
 
         } catch (Exception e) {
@@ -334,19 +334,19 @@ public class DefaultMessageProcessor implements MessageProcessor {
 
     private void logProcessingComplete(Message message, ProcessingResult result) {
         if (result != null) {
-            logger.info("Message processing completed - Offset: {}, Success: {}",
+            logger.debug("Message processing completed - Offset: {}, Success: {}",
                     message.getMsgOffset(), result.isSuccessful());
         }
     }
 
     // Control methods
     public void shutdown() {
-        logger.info("Shutting down message processor");
+        logger.debug("Shutting down message processor");
         operational.set(false);
     }
 
     public void start() {
-        logger.info("Starting message processor");
+        logger.debug("Starting message processor");
         operational.set(true);
     }
 

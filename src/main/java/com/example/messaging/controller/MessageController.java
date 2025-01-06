@@ -35,7 +35,7 @@ public class MessageController {
 
             pipelineManager.submitMessage(message)
                     .thenAccept(offset ->
-                            logger.info("Message processed with offset: {}", offset))
+                            logger.debug("Message processed with offset: {}", offset))
                     .exceptionally(throwable -> {
                         logger.error("Failed to process message", throwable);
                         return null;
@@ -62,7 +62,7 @@ public class MessageController {
 
             pipelineManager.submitBatch(messages)
                     .thenAccept(offsets ->
-                            logger.info("Batch processed with offsets: {}", offsets))
+                            logger.debug("Batch processed with offsets: {}", offsets))
                     .exceptionally(throwable -> {
                         logger.error("Failed to process batch", throwable);
                         return null;

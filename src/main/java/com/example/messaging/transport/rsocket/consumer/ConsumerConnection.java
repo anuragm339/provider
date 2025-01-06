@@ -30,7 +30,7 @@ public class ConsumerConnection {
         // Monitor connection
         rSocket.onClose()
                 .doFinally(signalType -> {
-                    logger.info("Consumer {} connection closed", metadata.getConsumerId());
+                    logger.debug("Consumer {} connection closed", metadata.getConsumerId());
                 })
                 .subscribe();
     }
@@ -41,14 +41,14 @@ public class ConsumerConnection {
             return Mono.empty();
         }
 
-        logger.info("Preparing to send message {} to consumer {}", message.getMessageId(), metadata.getConsumerId());
+        logger.debug("Preparing to send message {} to consumer {}", message.getMessageId(), metadata.getConsumerId());
         Payload messagePayload = DefaultPayload.create(messageCodec.encodeMessage(message));
 
         return rSocket.requestChannel(Flux.just(messagePayload))
                 .doOnNext(response -> {
                     try {
                         String data = response.getDataUtf8();
-                        logger.info("Received channel response: {}", data);
+                        logger.debug("Received channel response: {}", data);
                         requestHandler.requestChannel(Flux.just(response)).subscribe();
                     } finally {
                         response.release();
@@ -66,7 +66,7 @@ public class ConsumerConnection {
     }
 
     public void disconnect() {
-        logger.info("Disconnecting consumer {}", metadata.getConsumerId());
+        logger.debug("Disconnecting consumer {}", metadata.getConsumerId());
         rSocket.dispose();
     }
 

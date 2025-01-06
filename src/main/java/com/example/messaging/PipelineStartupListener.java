@@ -23,13 +23,13 @@ public class PipelineStartupListener {
     @EventListener
     public void onStartup(StartupEvent event) {
         try {
-            logger.info("Starting message pipeline...");
+            logger.debug("Starting message pipeline...");
             pipelineManager.start();
 
-            logger.info("Starting RSocket server...");
+            logger.debug("Starting RSocket server...");
             rSocketServer.start().block();
 
-            logger.info("Message pipeline system initialized successfully");
+            logger.debug("Message pipeline system initialized successfully");
         } catch (Exception e) {
             logger.error("Failed to initialize message pipeline system", e);
             throw new RuntimeException("Failed to initialize message pipeline system", e);

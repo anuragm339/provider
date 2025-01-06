@@ -218,7 +218,7 @@ public class BidirectionalDuplicateHandler implements AutoCloseable {
                                 logger.error("Failed to delete messages {} ", error);
                                 requeueCriticalEntries(batch);
                             } else {
-                                logger.info("Successfully deleted {} messages", count);
+                                logger.debug("Successfully deleted {} messages", count);
                             }
                         });
             }
@@ -228,7 +228,7 @@ public class BidirectionalDuplicateHandler implements AutoCloseable {
     }
 
     private void handleQueueOverflow() {
-        logger.info("Handling queue overflow - current size: {}", queuedForDeletionCount.get());
+        logger.debug("Handling queue overflow - current size: {}", queuedForDeletionCount.get());
 
         List<DeletionEntry> batch = new ArrayList<>();
         Set<Long> offsetsToDelete = new HashSet<>();

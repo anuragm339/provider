@@ -34,7 +34,7 @@ public class ConsumerRequestHandler implements RSocket {
                 .doOnNext(payload -> {
                     try {
                         String data = payload.getDataUtf8();
-                        logger.info("Received ack in provider: {}", data);
+                        logger.debug("Received ack in provider: {}", data);
                         // Process acknowledgment
                     } finally {
                         payload.release();
@@ -47,7 +47,7 @@ public class ConsumerRequestHandler implements RSocket {
         return Mono.defer(() -> {
             try {
                 String data = payload.getDataUtf8();
-                logger.info("Received fire-and-forget request: {}", data);
+                logger.debug("Received fire-and-forget request: {}", data);
                 ConsumerRequest request = messageCodec.decodeRequest(payload);
                 return handleRequest(request);
             } finally {
@@ -61,7 +61,7 @@ public class ConsumerRequestHandler implements RSocket {
         return Flux.defer(() -> {
             try {
                 String data = payload.getDataUtf8();
-                logger.info("Received stream request: {}", data);
+                logger.debug("Received stream request: {}", data);
                 ConsumerRequest request = messageCodec.decodeRequest(payload);
                 return handleStreamRequest(request);
             } finally {
@@ -71,7 +71,7 @@ public class ConsumerRequestHandler implements RSocket {
     }
 
     private Mono<Void> handleRequest(ConsumerRequest request) {
-        logger.info("Handling request: {}", request.getType());
+        logger.debug("Handling request: {}", request.getType());
         switch (request.getType()) {
             case SUBSCRIBE:
                 return handleSubscribe();
@@ -85,7 +85,7 @@ public class ConsumerRequestHandler implements RSocket {
     }
 
     private Flux<Payload> handleStreamRequest(ConsumerRequest request) {
-        logger.info("Handling stream request: {}", request.getType());
+        logger.debug("Handling stream request: {}", request.getType());
         switch (request.getType()) {
             case CONSUME:
                 return handleConsumeRequest(request);
@@ -98,24 +98,24 @@ public class ConsumerRequestHandler implements RSocket {
 
     private Mono<Void> handleSubscribe() {
         connection.getMetadata().setState(ConsumerState.ACTIVE);
-        logger.info("Consumer subscribed: {}", connection.getMetadata().getConsumerId());
+        logger.debug("Consumer subscribed: {}", connection.getMetadata().getConsumerId());
         return Mono.empty();
     }
 
     private Mono<Void> handleUnsubscribe() {
         connection.getMetadata().setState(ConsumerState.DISCONNECTING);
-        logger.info("Consumer unsubscribed: {}", connection.getMetadata().getConsumerId());
+        logger.debug("Consumer unsubscribed: {}", connection.getMetadata().getConsumerId());
         return Mono.empty();
     }
 
     private Mono<Void> handleAcknowledge(ConsumerRequest request) {
-        logger.info("Received acknowledgment from consumer: {}", connection.getMetadata().getConsumerId());
+        logger.debug("Received acknowledgment from consumer: {}", connection.getMetadata().getConsumerId());
         return Mono.empty();
     }
 
     private Flux<Payload> handleConsumeRequest(ConsumerRequest request) {
         connection.getMetadata().setState(ConsumerState.CONSUMING);
-        logger.info("Starting consumption for consumer: {}", connection.getMetadata().getConsumerId());
+        logger.debug("Starting consumption for consumer: {}", connection.getMetadata().getConsumerId());
         return Flux.empty(); // Keep stream open for messages
     }
 

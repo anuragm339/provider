@@ -57,7 +57,7 @@ public class ConnectionAcceptor implements SocketAcceptor {
                 // Register consumer AFTER creating handler
                 consumerRegistry.registerConsumer(connection);
 
-                logger.info("Created RSocket handler for consumer: {}", metadata.getConsumerId());
+                logger.debug("Created RSocket handler for consumer: {}", metadata.getConsumerId());
 
                 // This is important - return the handler
                 return Mono.just(handler);
