@@ -28,6 +28,13 @@ rsocket:
   maxInboundPayloadSize: 1048576 # 1MB
 
 pipeline:
+  queue:
+    max-queue-size-bytes: 1048576  # 1MB
+    initial-queue-capacity: 1000
+    enforce-byte-limit: true
+    max-messages-per-consumer: 10000
+    memory-threshold-percentage: 0.8
+    minimum-free-memory-bytes: 104857600  # 100MB
   maxConcurrentMessages: 100
   maxQueueSize: 1000
   processingTimeoutMs: 10000

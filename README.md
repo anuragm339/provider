@@ -44,96 +44,47 @@ A high-performance, scalable messaging service that supports batch processing, m
 - Reactive programming (Project Reactor)
 - Micronaut framework
 
-## Components Diagram
-
-```mermaid
-flowchart TB
-    subgraph Provider[Message Provider]
-        direction TB
-        API[PipelineManager Interface]
-        Core[DefaultPipelineManager]
-        
-        subgraph Processing["Processing Layer"]
-            direction TB
-            BP[BatchProcessor]
-            MP[MessageProcessor]
-            MV[MessageValidator]
-        end
-        
-        subgraph Storage["Storage Layer"]
-            direction TB
-            MS[MessageStore]
-            DB[(SQLite)]
-            DM[DatabaseMaintenance]
-        end
-        
-        subgraph Transport["Transport Layer"]
-            direction TB
-            RS[RSocketServer]
-            CR[ConsumerRegistry]
-            CC[ConsumerConnection]
-        end
-    end
-    
-    Consumer["Consumer SDK"]
-    
-    API --> Core
-    Core --> BP
-    Core --> MP
-    Core --> MS
-    MP --> MV
-    MS --> DB
-    MS --> DM
-    Core --> CR
-    CR --> CC
-    CC -.->|RSocket Protocol| Consumer
-```
 ## Architecture Details
 
 ### Component Diagram
 Shows the high-level structure and relationships between components:
 
 ```mermaid
-flowchart TB
-    subgraph Provider[Message Provider]
-        direction TB
-        API[PipelineManager Interface]
-        Core[DefaultPipelineManager]
-        
-        subgraph Processing["Processing Layer"]
-            direction TB
-            BP[BatchProcessor]
-            MP[MessageProcessor]
-            MV[MessageValidator]
-        end
-        
-        subgraph Storage["Storage Layer"]
-            direction TB
-            MS[MessageStore]
-            DB[(SQLite)]
-            DM[DatabaseMaintenance]
-        end
-        
-        subgraph Transport["Transport Layer"]
-            direction TB
-            RS[RSocketServer]
-            CR[ConsumerRegistry]
-            CC[ConsumerConnection]
-        end
+
+graph TB
+    Client[Client/API] --> |HTTP/REST| Controller[MessageController]
+    Controller --> |Submit Message| Pipeline[PipelineManager]
+    Pipeline --> |Store| DB[(Message Store)]
+    Pipeline --> |Process| MessageProcessor[Message Processor]
+    Pipeline --> |Batch Process| BatchProcessor[Batch Processor]
+    MessageProcessor --> |Validate| Validator[Message Validator]
+    MessageProcessor --> |Compress| Compression[Message Compression]
+    Pipeline --> |Queue| TypeQueues[Type-Based Queues]
+    Pipeline --> |Monitor| HealthCheck[Health Monitor]
+    Pipeline --> |Transport| RSocket[RSocket Server]
+    RSocket --> |Publish| Consumers[Consumer Groups]
+    
+    subgraph Storage
+        DB
+        DupeHandler[Duplicate Handler]
     end
     
-    Consumer["Consumer SDK"]
+    subgraph Monitoring
+        HealthCheck
+        Stats[Statistics]
+        Maintenance[Maintenance]
+    end
     
-    API --> Core
-    Core --> BP
-    Core --> MP
-    Core --> MS
-    MP --> MV
-    MS --> DB
-    MS --> DM
-    Core --> CR
-    CR --> CC
-    CC -.->|RSocket Protocol| Consumer
+    subgraph Consumers
+        Consumer1[Consumer 1]
+        Consumer2[Consumer 2]
+        ConsumerN[Consumer N]
+    end
+
+    classDef primary fill:#f9f,stroke:#333,stroke-width:4px;
+    classDef secondary fill:#bbf,stroke:#333,stroke-width:2px;
+    class Pipeline,MessageProcessor primary;
+    class Controller,DB,RSocket secondary;
 ```
 
 ### Class Diagram
@@ -143,58 +94,67 @@ Detailed class structure and relationships:
 classDiagram
     class PipelineManager {
         <<interface>>
-        +start() void
-        +stop() void
-        +submitMessage(Message) CompletableFuture~Long~
-        +submitBatch(List~Message~) CompletableFuture~List~Long~~
-        +getStatus() PipelineStatus
-        +canAccept() boolean
+        +start()
+        +stop()
+        +submitMessage(Message)
+        +submitBatch(List~Message~)
+        +getStatus()
+        +canAccept()
     }
-
+    
     class DefaultPipelineManager {
-        -messageProcessor: MessageProcessor
-        -batchProcessor: BatchProcessor
-        -messageStore: MessageStore
-        -status: AtomicReference~PipelineStatus~
-        +submitMessage(Message) CompletableFuture~Long~
-        +submitBatch(List~Message~) CompletableFuture~List~Long~~
+        -MessageProcessor messageProcessor
+        -BatchProcessor batchProcessor
+        -MessageStore messageStore
+        -Map~String,ByteSizedBlockingQueue~ typeBasedQueues
+        -QueueConfiguration queueConfig
+        +processMessagesParallel()
+        -processMessageAsync(Message)
+        -monitorMessageCompletion(Message)
     }
-
-    class ConsumerRegistry {
-        -consumerConnections: Map~String, ConsumerConnection~
-        -consumerGroups: Map~String, Set~String~~
-        +registerConsumer(connection) void
-        +unregisterConsumer(consumerId) void
-        +broadcastToGroup(groupId, message) Mono~Void~
+    
+    class ByteSizedBlockingQueue {
+        -LinkedBlockingQueue~Message~ queue
+        -AtomicLong currentSizeBytes
+        -long maxSizeBytes
+        +offer(Message, timeout)
+        +poll()
+        +getCurrentSizeBytes()
+        +contains(Message)
     }
-
-    class ConsumerConnection {
-        -metadata: ConsumerMetadata
-        -rSocket: RSocket
-        -active: boolean
-        +sendMessage(message) Mono~Void~
-        +disconnect() void
+    
+    class Message {
+        -long msgOffset
+        -String type
+        -Instant createdUtc
+        -byte[] data
+        -MessageState state
     }
-
+    
+    class MessageProcessor {
+        <<interface>>
+        +processMessage(Message)
+        +verifyProcessing(offset, token)
+        +canAccept()
+        +isOperational()
+    }
+    
     class MessageStore {
         <<interface>>
-        +store(Message) CompletableFuture~Long~
-        +getMessage(offset) CompletableFuture~Optional~Message~~
-        +storeProcessingResult(result) CompletableFuture~Void~
+        +store(Message)
+        +storeBatch(List~Message~)
+        +getMessage(offset)
+        +storeProcessingResult(result)
+        +getProcessingResult(offset)
     }
 
-    class BatchProcessor {
-        <<interface>>
-        +processBatch(List~Message~) CompletableFuture~List~ProcessingResult~~
-        +canAcceptBatch(batchSize) boolean
-        +getOptimalBatchSize() int
-    }
-
-    PipelineManager <|.. DefaultPipelineManager
-    DefaultPipelineManager --> BatchProcessor
+    PipelineManager <|-- DefaultPipelineManager
+    DefaultPipelineManager --> MessageProcessor
     DefaultPipelineManager --> MessageStore
-    ConsumerRegistry --> ConsumerConnection
-    DefaultPipelineManager ..> ConsumerRegistry
+    DefaultPipelineManager --> ByteSizedBlockingQueue
+    DefaultPipelineManager ..> Message
+    MessageProcessor ..> Message
+    MessageStore ..> Message
 ```
 
 ### Sequence Diagram
@@ -202,31 +162,50 @@ Shows the message flow and component interactions:
 
 ```mermaid
 sequenceDiagram
-    participant C as Consumer
-    participant RS as RSocketServer
-    participant CR as ConsumerRegistry
+    participant C as Client
+    participant MC as MessageController
     participant PM as PipelineManager
+    participant Q as TypeQueue
+    participant MP as MessageProcessor
     participant MS as MessageStore
-    participant BP as BatchProcessor
+    participant RS as RSocketServer
+    participant CO as Consumer
 
-    C->>RS: Connect request
-    RS->>CR: Register consumer
-    CR-->>RS: Consumer registered
-    RS-->>C: Connection established
-
-    Note over PM: Message received
-    PM->>MS: Store message
-    MS-->>PM: Message stored
-    PM->>BP: Process message
-    BP-->>PM: Processing complete
+    C->>MC: Submit Message
+    activate MC
+    MC->>PM: submitMessage(message)
+    activate PM
     
-    PM->>CR: Broadcast to group
-    CR->>RS: Send to consumers
-    RS->>C: Deliver message
-    C-->>RS: Acknowledge
-    RS->>CR: Update delivery status
-
-    Note over PM,MS: Message lifecycle complete
+    PM->>Q: offer(message)
+    activate Q
+    Q-->>PM: message queued
+    deactivate Q
+    
+    par Process Message
+        PM->>MP: processMessage(message)
+        activate MP
+        MP->>MS: store(message)
+        MS-->>MP: stored
+        MP->>MS: storeProcessingResult(result)
+        MS-->>MP: stored
+        MP-->>PM: processing complete
+        deactivate MP
+    and Monitor Completion
+        PM->>MS: getProcessingResult(offset)
+        MS-->>PM: result
+    end
+    
+    PM->>RS: publishMessage(message)
+    activate RS
+    RS->>CO: deliver message
+    CO-->>RS: acknowledge
+    RS-->>PM: published
+    deactivate RS
+    
+    PM-->>MC: message processed
+    deactivate PM
+    MC-->>C: success response
+    deactivate MC
 ```
 # Message Provider Service
 

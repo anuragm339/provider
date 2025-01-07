@@ -1,5 +1,6 @@
 package com.example.messaging.config;
 
+import com.example.messaging.core.pipeline.config.QueueConfiguration;
 import com.example.messaging.core.pipeline.impl.DefaultPipelineManager;
 import com.example.messaging.core.pipeline.service.MessageProcessor;
 import com.example.messaging.core.pipeline.service.BatchProcessor;
@@ -44,14 +45,14 @@ public class PipelineManagerFactory {
             MessageProcessor messageProcessor,
             BatchProcessor batchProcessor,
             MessageStore messageStore,
-            PipelineManagerConfig config) {
+            PipelineManagerConfig config, QueueConfiguration queueConfiguration) {
 
         return new DefaultPipelineManager(
                 messageProcessor,
                 batchProcessor,
                 messageStore,
                 customExecutor(),
-                config.getQueueCapacity(),
+                queueConfiguration,
                 config.getThreadPoolSize()
         );
     }
