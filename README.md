@@ -207,6 +207,185 @@ sequenceDiagram
     MC-->>C: success response
     deactivate MC
 ```
+
+### message submission flow class diagram
+Shows the message submission and class interactions:
+
+````mermaid
+classDiagram
+    class MessageController {
+        -PipelineManager pipelineManager
+        +submitMessage(MessageRequest)
+        +submitBatch(List~MessageRequest~)
+    }
+
+    class MessageRequest {
+        -long offset
+        -String type
+        -String data
+        +getOffset()
+        +getType()
+        +getData()
+    }
+
+    class Message {
+        -long msgOffset
+        -String type
+        -Instant createdUtc
+        -byte[] data
+        -MessageState state
+        +builder()
+    }
+
+    class DefaultPipelineManager {
+        -MessageProcessor messageProcessor
+        -MessageStore messageStore
+        -Map~String,ByteSizedBlockingQueue~ typeBasedQueues
+        +submitMessage(Message)
+        -processMessageAsync(Message)
+        -monitorMessageCompletion(Message)
+    }
+
+    class ByteSizedBlockingQueue {
+        -LinkedBlockingQueue~Message~ queue
+        -AtomicLong currentSizeBytes
+        +offer(Message)
+        +poll()
+        +contains(Message)
+    }
+
+    class DefaultMessageProcessor {
+        -MessageValidator validator
+        -MessageStore messageStore
+        -MessagePublisher messagePublisher
+        +processMessage(Message)
+        -doProcessMessage(Message)
+        -calculateChecksum(Message)
+    }
+
+    class MessageValidator {
+        +validate(Message)
+        -validateData(byte[])
+        -validateTimestamp(Instant)
+    }
+
+    class MessageCompression {
+        +compressData(byte[])
+        +decompressData(byte[])
+        +shouldCompress(Message)
+    }
+
+    class SQLiteMessageStore {
+        -DataSource dataSource
+        +store(Message)
+        +storeProcessingResult(ProcessingResult)
+        +getMessage(long)
+        +getProcessingResult(long)
+    }
+
+    class ProcessingResult {
+        -long offset
+        -String checksum
+        -boolean successful
+        -long processingTimestamp
+        +builder()
+    }
+
+    class MessagePublisher {
+        -ConsumerRegistry consumerRegistry
+        +publishMessage(Message, String)
+    }
+
+    class ConsumerRegistry {
+        -Map~String, ConsumerConnection~ consumerConnections
+        +broadcastToGroup(String, TransportMessage)
+    }
+
+    MessageController ..> MessageRequest
+    MessageController --> DefaultPipelineManager
+    MessageRequest ..> Message : converts to
+    DefaultPipelineManager --> ByteSizedBlockingQueue
+    DefaultPipelineManager --> DefaultMessageProcessor
+    DefaultPipelineManager --> SQLiteMessageStore
+    DefaultMessageProcessor --> MessageValidator
+    DefaultMessageProcessor --> MessageCompression
+    DefaultMessageProcessor --> MessagePublisher
+    DefaultMessageProcessor ..> ProcessingResult : creates
+    MessagePublisher --> ConsumerRegistry
+    SQLiteMessageStore ..> ProcessingResult : stores
+
+    note for DefaultPipelineManager "1. Receives message\n2. Queues by type\n3. Processes async\n4. Monitors completion"
+    note for DefaultMessageProcessor "1. Validates\n2. Compresses\n3. Processes\n4. Publishes"
+    note for SQLiteMessageStore "Handles message\npersistence and\nresult storage"
+````
+
+
+### message submission flow component diagram
+Shows the message submission and component interactions
+```mermaid
+flowchart TB
+    subgraph Client["Client Layer"]
+        REST[REST API Client]
+    end
+
+    subgraph API["API Layer"]
+        MC[Message Controller]
+        VL[Request Validator]
+    end
+
+    subgraph Pipeline["Pipeline Management"]
+        PM[Pipeline Manager]
+        QM[Queue Manager]
+        MM[Message Monitor]
+        subgraph Queues["Type-Based Queues"]
+            Q1[Queue Type A]
+            Q2[Queue Type B]
+            Q3[Queue Type N]
+        end
+    end
+
+    subgraph Processing["Processing Layer"]
+        MP[Message Processor]
+        MV[Message Validator]
+        MC1[Message Compression]
+        DH[Duplicate Handler]
+    end
+
+    subgraph Storage["Storage Layer"]
+        MS[Message Store]
+        RS[Result Store]
+    end
+
+    subgraph Transport["Transport Layer"]
+        PUB[Publisher]
+        RS1[RSocket Server]
+        CR[Consumer Registry]
+    end
+
+    REST -->|HTTP POST| MC
+    MC -->|Validate| VL
+    MC -->|Submit| PM
+    PM -->|Queue| QM
+    QM -->|Type A| Q1
+    QM -->|Type B| Q2
+    QM -->|Type N| Q3
+    PM -->|Monitor| MM
+    PM -->|Process| MP
+    MP -->|Validate| MV
+    MP -->|Compress| MC1
+    MP -->|Check Duplicate| DH
+    MP -->|Store| MS
+    MP -->|Store Result| RS
+    MP -->|Publish| PUB
+    PUB -->|Register| CR
+    PUB -->|Send| RS1
+
+    classDef primary fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef secondary fill:#bbf,stroke:#333,stroke-width:1px;
+    class PM,MP primary;
+    class MC,MS,RS1 secondary;
+
+```
 # Message Provider Service
 
 ## Key Interactions
