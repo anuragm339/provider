@@ -165,19 +165,19 @@ public class DefaultPipelineManager implements PipelineManager {
         return CompletableFuture.supplyAsync(() -> {
                     try {
                         // First store the message
-                        logger.debug("Storing message {}", message.getMsgOffset());
+                        logger.info("Storing message {}", message.getMsgOffset());
                         messageStore.store(message).join();
-                        logger.debug("Message {} stored successfully", message.getMsgOffset());
+                        logger.info("Message {} stored successfully", message.getMsgOffset());
 
                         // Then process the message
-                        logger.debug("Processing message {}", message.getMsgOffset());
+                        logger.info("Processing message {}", message.getMsgOffset());
                         ProcessingResult result = messageProcessor.processMessage(message).join();
-                        logger.debug("Message {} processed successfully", message.getMsgOffset());
+                        logger.info("Message {} processed successfully", message.getMsgOffset());
 
                         // Store the processing result
-                        logger.debug("Storing processing result for message {}", message.getMsgOffset());
+                        logger.info("Storing processing result for message {}", message.getMsgOffset());
                         messageStore.storeProcessingResult(result).join();
-                        logger.debug("Processing result stored for message {}", message.getMsgOffset());
+                        logger.info("Processing result stored for message {}", message.getMsgOffset());
 
                         return result;
                     } catch (Exception e) {
@@ -185,7 +185,7 @@ public class DefaultPipelineManager implements PipelineManager {
                         throw new CompletionException(e);
                     }
                 }, primaryExecutor)
-                .orTimeout(30, TimeUnit.SECONDS)
+                .orTimeout(300, TimeUnit.SECONDS)
                 .exceptionally(throwable -> {
                     logger.error("Message processing failed for {}: {}", message.getMsgOffset(), throwable.getMessage());
                     throw new CompletionException(throwable);
