@@ -43,7 +43,7 @@ public class ByteSizedBlockingQueue {
 
             if (queue.offer(message, timeout, unit)) {
                 currentSizeBytes.addAndGet(messageSize);
-                logger.info("Added message {} to queue for consumer {}. New size: {} bytes",
+                logger.debug("Added message {} to queue for consumer {}. New size: {} bytes",
                         message.getMsgOffset(), consumerId, currentSizeBytes.get());
                 return true;
             }

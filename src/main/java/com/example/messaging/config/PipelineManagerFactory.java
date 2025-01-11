@@ -20,8 +20,8 @@ public class PipelineManagerFactory {
 
     @ConfigurationProperties("pipeline.manager")
     public static class PipelineManagerConfig {
-        private int queueCapacity = 1000;
-        private int threadPoolSize = Runtime.getRuntime().availableProcessors();
+        private int queueCapacity = 10000;
+        private int threadPoolSize = Runtime.getRuntime().availableProcessors()*4;
 
         public int getQueueCapacity() { return queueCapacity; }
         public void setQueueCapacity(int queueCapacity) { this.queueCapacity = queueCapacity; }

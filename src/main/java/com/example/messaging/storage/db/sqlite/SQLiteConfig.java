@@ -23,7 +23,7 @@ public class SQLiteConfig implements StorageConfig {
         this.retentionPeriodMs = retentionPeriodMs;
         this.batchSize = batchSize;
         this.compressionEnabled = compressionEnabled;
-        this.syncMode = SyncMode.BATCH_SYNC;
+        this.syncMode = SyncMode.ASYNC;
     }
 
     @Override

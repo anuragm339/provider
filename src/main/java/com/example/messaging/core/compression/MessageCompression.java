@@ -4,6 +4,8 @@ import com.example.messaging.exceptions.ProcessingException;
 import com.example.messaging.exceptions.ErrorCode;
 import com.example.messaging.models.Message;
 import com.example.messaging.monitoring.health.CompressionStats;
+import io.micronaut.context.annotation.Value;
+import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,10 +14,14 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
 
+@Singleton
 public class MessageCompression {
     private static final Logger logger = LoggerFactory.getLogger(MessageCompression.class);
-    private static final int COMPRESSION_THRESHOLD_BYTES = 1024; // 1KB
-    private static final int BUFFER_SIZE = 8192; // 8KB
+    @Value("${compression.threshold.bytes:1024}")
+    private final int COMPRESSION_THRESHOLD_BYTES = 1024; // 1KB
+
+    @Value("${compression.buffer.size:8192}")
+    private final int BUFFER_SIZE = 8192; // 8KB
 
     private final AtomicLong totalCompressedMessages = new AtomicLong(0);
     private final AtomicLong totalCompressionTime = new AtomicLong(0);

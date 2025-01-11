@@ -44,6 +44,8 @@ public class SQLiteMessageStore implements MessageStore {
     private static final String SELECT_RESULT =
             "SELECT msg_offset, success, checksum, processing_time FROM processing_results WHERE msg_offset = ?";
 
+    private static final String COUNT_MESSAGES = "SELECT COUNT(*) FROM messages";
+
     private final DataSource dataSource;
     private final SQLiteConfig config;
     private final Executor executor;
@@ -53,14 +55,14 @@ public class SQLiteMessageStore implements MessageStore {
     private final MessageCompression compression;
     private final MessageStatistics statistics;
 
-    public SQLiteMessageStore(DataSource dataSource, SQLiteConfig config, Executor executor) {
+    public SQLiteMessageStore(DataSource dataSource, SQLiteConfig config, Executor executor,MessageCompression messageCompression) {
         this.dataSource = dataSource;
         this.config = config;
         this.executor = executor;
         this.tableManager = new SQLiteTableManager(dataSource);
         this.healthManager = new DatabaseHealthManager(dataSource, config);
         this.maintenanceManager = new DatabaseMaintenanceManager(dataSource, config);
-        this.compression = new MessageCompression();
+        this.compression = messageCompression;
         this.statistics = new MessageStatistics(dataSource);
 
         initialize();
@@ -77,6 +79,7 @@ public class SQLiteMessageStore implements MessageStore {
         long startTime = System.currentTimeMillis();
         return CompletableFuture.supplyAsync(() -> {
             try (Connection conn = dataSource.getConnection();
+
                  PreparedStatement stmt = conn.prepareStatement(INSERT_MESSAGE)) {
 
                 byte[] dataToStore = message.getData();
@@ -84,11 +87,11 @@ public class SQLiteMessageStore implements MessageStore {
                 int originalSize = dataToStore.length;
                 int compressedSize = originalSize;
 
-                if (compression.shouldCompress(message)) {
-                    dataToStore = compression.compressData(message.getData());
-                    isCompressed = true;
-                    compressedSize = dataToStore.length;
-                }
+//                if (compression.shouldCompress(message)) {
+//                    dataToStore = compression.compressData(message.getData());
+//                    isCompressed = true;
+//                    compressedSize = dataToStore.length;
+//                }
 
                 stmt.setLong(1, message.getMsgOffset());
                 stmt.setString(2, message.getType());
@@ -99,6 +102,12 @@ public class SQLiteMessageStore implements MessageStore {
                 stmt.setInt(7, compressedSize);
 
                 stmt.executeUpdate();
+
+                PreparedStatement preparedStatement = conn.prepareStatement(COUNT_MESSAGES);
+                ResultSet resultSet = preparedStatement.executeQuery();
+                while (resultSet.next()) {
+                    logger.info("Number of messages in the database: {}", resultSet.getInt(1));
+                }
 
                 long duration = System.currentTimeMillis() - startTime;
                 statistics.recordWriteTime(message.getType(), duration);
@@ -360,6 +369,7 @@ public class SQLiteMessageStore implements MessageStore {
 
     @Override
     public CompletableFuture<Integer> deleteMessagesWithOffsets(Set<Long> offsets) {
+        logger.info("Deleting messages with offsets: {}", offsets);
         return CompletableFuture.supplyAsync(() -> {
             try (Connection conn = dataSource.getConnection()) {
                 conn.setAutoCommit(false);

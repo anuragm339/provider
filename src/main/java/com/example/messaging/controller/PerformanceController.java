@@ -56,6 +56,7 @@ public class PerformanceController {
 
                     for (int j = 0; j < messagesPerConsumer; j++) {
                         Message message = Message.builder()
+                                .msgKey(UUID.randomUUID().toString())
                                 .msgOffset(messageCounter.incrementAndGet())
                                 .type(consumerType)
                                 .createdUtc(Instant.now())

@@ -3,15 +3,17 @@ package com.example.messaging.core.validation.impl;
 import com.example.messaging.core.validation.service.MessageValidator;
 import com.example.messaging.models.Message;
 import com.example.messaging.exceptions.ValidationException;
+import io.micronaut.context.annotation.Value;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import static com.example.messaging.constants.MessageConstants.MAX_MESSAGE_SIZE_BYTES;
 
 @Singleton
 public class DefaultMessageValidator implements MessageValidator {
+    @Value("${messaging.max.message.size:2097152}") // 2 MB max message size
+    private int MAX_MESSAGE_SIZE_BYTES;
     private static final Logger logger = LoggerFactory.getLogger(DefaultMessageValidator.class);
 
     @Override

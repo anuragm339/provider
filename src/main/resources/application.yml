@@ -29,20 +29,20 @@ rsocket:
 
 pipeline:
   queue:
-    max-queue-size-bytes: 1048576  # 1MB
-    initial-queue-capacity: 1000
-    enforce-byte-limit: true
-    max-messages-per-consumer: 10000
-    memory-threshold-percentage: 0.8
-    minimum-free-memory-bytes: 104857600  # 100MB
-  maxConcurrentMessages: 100
-  maxQueueSize: 1000
+    maxQueueSizeBytes: 2048576  # 1MB
+    initialQueueCapacity: 100000
+    enforceByteLimit: false
+    maxMessagesPerConsumer: 1000000
+    memoryThresholdPercentage: 0.8
+    minimumFreeMemoryBytes: 104857600 # 100MB
+  maxConcurrentMessages: 10000
+  maxQueueSize: 10000
   processingTimeoutMs: 10000
-  maxRetryAttempts: 3
+  maxRetryAttempts: 1000000
   retryDelayMs: 1000
   manager:
-    queueCapacity: 1000
-    threadPoolSize: 4
+    queueCapacity: 10000
+    threadPoolSize: 10
 
 parallel-processing:
   parallelThreads: 4
@@ -79,3 +79,12 @@ rocks:
     cleanup-batch-size: 1000
     auto-compaction: true
     max-compaction-threads: 2
+messaging:
+  max:
+    message:
+      size: 2097152
+compression:
+  threshold:
+    bytes: 524288
+  buffer:
+    size: 32768

@@ -170,14 +170,14 @@ public class DefaultPipelineManager implements PipelineManager {
                         logger.info("Message {} stored successfully", message.getMsgOffset());
 
                         // Then process the message
-                        logger.info("Processing message {}", message.getMsgOffset());
+                        logger.debug("Processing message {}", message.getMsgOffset());
                         ProcessingResult result = messageProcessor.processMessage(message).join();
-                        logger.info("Message {} processed successfully", message.getMsgOffset());
+                        logger.debug("Message {} processed successfully", message.getMsgOffset());
 
                         // Store the processing result
-                        logger.info("Storing processing result for message {}", message.getMsgOffset());
-                        messageStore.storeProcessingResult(result).join();
-                        logger.info("Processing result stored for message {}", message.getMsgOffset());
+                        logger.debug("Storing processing result for message {}", message.getMsgOffset());
+                        //messageStore.storeProcessingResult(result).join();
+                        logger.debug("Processing result stored for message {}", message.getMsgOffset());
 
                         return result;
                     } catch (Exception e) {

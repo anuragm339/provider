@@ -29,6 +29,11 @@ public class DatabaseFactory {
         HikariConfig hikariConfig = new HikariConfig();
         hikariConfig.setJdbcUrl("jdbc:sqlite:" + config.getDbPath());
         // SQLite-specific configurations
+        hikariConfig.setMaximumPoolSize(Runtime.getRuntime().availableProcessors() * 4);
+        hikariConfig.setMinimumIdle(Runtime.getRuntime().availableProcessors());
+        hikariConfig.setIdleTimeout(30000);
+        hikariConfig.setMaxLifetime(45000);
+        hikariConfig.setConnectionTimeout(30000);
         hikariConfig.addDataSourceProperty("journal_mode", "WAL");
         hikariConfig.addDataSourceProperty("synchronous", "NORMAL");
         hikariConfig.addDataSourceProperty("foreign_keys", "ON");

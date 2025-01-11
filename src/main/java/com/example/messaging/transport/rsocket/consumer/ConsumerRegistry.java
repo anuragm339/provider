@@ -63,7 +63,7 @@ public class ConsumerRegistry {
     public Mono<Void> broadcastToGroup(String groupId, TransportMessage message) {
         Set<String> consumers = getGroupMembers(groupId);
         if (consumers.isEmpty()) {
-            logger.warn("No active consumers found for group: {}. Message will be queued.", groupId);
+            logger.debug("No active consumers found for group: {}. Message will be queued.", groupId);
             pendingMessages.offer(new PendingMessage(message, groupId));
             return Mono.empty();
         }
