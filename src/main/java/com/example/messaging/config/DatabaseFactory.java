@@ -34,8 +34,10 @@ public class DatabaseFactory {
         hikariConfig.setIdleTimeout(30000);
         hikariConfig.setMaxLifetime(45000);
         hikariConfig.setConnectionTimeout(30000);
-        hikariConfig.addDataSourceProperty("journal_mode", "WAL");
-        hikariConfig.addDataSourceProperty("synchronous", "NORMAL");
+        hikariConfig.addDataSourceProperty("journal_mode", "WAL");// Write-Ahead Logging
+        hikariConfig.addDataSourceProperty("synchronous", "NORMAL");         // Balance durability and speed
+        hikariConfig.addDataSourceProperty("busy_timeout", "100000");         // Wait up to 30 seconds when busy
+        hikariConfig.addDataSourceProperty("cache_size", "2000");           // 2MB cache
         hikariConfig.addDataSourceProperty("foreign_keys", "ON");
 
         return new HikariDataSource(hikariConfig);

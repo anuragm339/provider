@@ -32,8 +32,8 @@ public class SQLiteMessageStore implements MessageStore {
     private static final Logger logger = LoggerFactory.getLogger(SQLiteMessageStore.class);
 
     private static final String INSERT_MESSAGE =
-            "INSERT INTO messages (msg_offset, type, created_utc, data, compressed, original_size, compressed_size) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)";
+            "INSERT INTO messages (msg_offset, msg_key,type, created_utc, data, compressed, original_size, compressed_size) " +
+                    "VALUES (?, ?,?, ?, ?, ?, ?, ?)";
 
     private static final String SELECT_MESSAGE =
             "SELECT msg_offset, type, created_utc, data, compressed FROM messages WHERE msg_offset = ?";
@@ -94,12 +94,13 @@ public class SQLiteMessageStore implements MessageStore {
 //                }
 
                 stmt.setLong(1, message.getMsgOffset());
-                stmt.setString(2, message.getType());
-                stmt.setTimestamp(3, Timestamp.from(message.getCreatedUtc()));
-                stmt.setBytes(4, dataToStore);
-                stmt.setBoolean(5, isCompressed);
-                stmt.setInt(6, originalSize);
-                stmt.setInt(7, compressedSize);
+                stmt.setString(2,message.getMsgKey());
+                stmt.setString(3, message.getType());
+                stmt.setTimestamp(4, Timestamp.from(message.getCreatedUtc()));
+                stmt.setBytes(5, dataToStore);
+                stmt.setBoolean(6, isCompressed);
+                stmt.setInt(7, originalSize);
+                stmt.setInt(8, compressedSize);
 
                 stmt.executeUpdate();
 
@@ -157,12 +158,13 @@ public class SQLiteMessageStore implements MessageStore {
                         }
 
                         stmt.setLong(1, message.getMsgOffset());
-                        stmt.setString(2, message.getType());
-                        stmt.setTimestamp(3, Timestamp.from(message.getCreatedUtc()));
-                        stmt.setBytes(4, dataToStore);
-                        stmt.setBoolean(5, isCompressed);
-                        stmt.setInt(6, originalSize);
-                        stmt.setInt(7, compressedSize);
+                        stmt.setString(2,message.getMsgKey());
+                        stmt.setString(3, message.getType());
+                        stmt.setTimestamp(4, Timestamp.from(message.getCreatedUtc()));
+                        stmt.setBytes(5, dataToStore);
+                        stmt.setBoolean(6, isCompressed);
+                        stmt.setInt(7, originalSize);
+                        stmt.setInt(8, compressedSize);
 
                         stmt.addBatch();
                         offsets.add(message.getMsgOffset());
@@ -458,5 +460,43 @@ public class SQLiteMessageStore implements MessageStore {
         }
         return offsets.size(); // Approximate count
     }
+    @Override
+    public CompletableFuture<Void> storeProcessingResultBatch(List<ProcessingResult> results) {
+        return CompletableFuture.runAsync(() -> {
+            try (Connection conn = dataSource.getConnection()) {
+                conn.setAutoCommit(false);
+                try (PreparedStatement stmt = conn.prepareStatement(INSERT_RESULT)) {
+                    for (ProcessingResult result : results) {
+                        stmt.setLong(1, result.getOffset());
+                        stmt.setBoolean(2, result.isSuccessful());
+                        stmt.setString(3, result.getChecksum());
+                        stmt.setLong(4, result.getProcessingTimestamp());
+                        stmt.addBatch();
+                    }
 
+                    stmt.executeBatch();
+                    conn.commit();
+
+                    logger.info("Successfully stored {} processing results", results.size());
+                } catch (SQLException e) {
+                    conn.rollback();
+                    logger.error("Failed to store processing results batch", e);
+                    throw new ProcessingException(
+                            "Failed to store processing results",
+                            ErrorCode.PROCESSING_FAILED.getCode(),
+                            true,
+                            e
+                    );
+                }
+            } catch (SQLException e) {
+                logger.error("Database error while storing processing results", e);
+                throw new ProcessingException(
+                        "Database error",
+                        ErrorCode.PROCESSING_FAILED.getCode(),
+                        true,
+                        e
+                );
+            }
+        }, executor);
+    }
 }

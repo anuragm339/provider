@@ -2,6 +2,7 @@ package com.example.messaging.storage.service;
 
 import com.example.messaging.models.Message;
 import com.example.messaging.core.pipeline.service.ProcessingResult;
+import io.netty.util.internal.StringUtil;
 
 import java.util.List;
 import java.util.Optional;
@@ -70,4 +71,5 @@ public interface MessageStore {
 
     CompletableFuture<Integer> deleteMessagesWithOffsets(Set<Long> offsetsToDelete);
 
+    CompletableFuture<Void> storeProcessingResultBatch(List<ProcessingResult> result);
 }

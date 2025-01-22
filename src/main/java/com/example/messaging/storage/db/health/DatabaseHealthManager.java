@@ -88,23 +88,38 @@ public class DatabaseHealthManager {
     }
 
     private boolean checkWriteCapability() {
-        try (Connection conn = dataSource.getConnection()) {
-            conn.setAutoCommit(false);
-            try (Statement stmt = conn.createStatement()) {
-                stmt.execute("CREATE TABLE IF NOT EXISTS health_check (id INTEGER PRIMARY KEY)");
-                stmt.execute("INSERT INTO health_check (id) VALUES (1)");
-                stmt.execute("DELETE FROM health_check WHERE id = 1");
-                conn.commit();
-                return true;
-            } catch (SQLException e) {
-                conn.rollback();
+        int retries = 0;
+        int maxRetries = 30;
+        long retryDelayMs = 1000;
+
+        while (retries < maxRetries) {
+            try (Connection conn = dataSource.getConnection()) {
+                conn.setAutoCommit(false);
+                try (Statement stmt = conn.createStatement()) {
+                    stmt.execute("CREATE TABLE IF NOT EXISTS health_check (id INTEGER PRIMARY KEY)");
+                    stmt.execute("INSERT INTO health_check (id) VALUES (1)");
+                    stmt.execute("DELETE FROM health_check WHERE id = 1");
+                    conn.commit();
+                    return true;
+                } catch (SQLException e) {
+                    conn.rollback();
+                    if (e.getMessage().contains("database is locked")) {
+                        retries++;
+                        if (retries < maxRetries) {
+                            logger.warn("Database locked, retrying in {} ms. Attempt {}/{}",
+                                    retryDelayMs, retries, maxRetries);
+                            Thread.sleep(retryDelayMs);
+                            continue;
+                        }
+                    }
+                    throw e;
+                }
+            } catch (Exception e) {
                 logger.error("Write capability check failed", e);
                 return false;
             }
-        } catch (SQLException e) {
-            logger.error("Database write check failed", e);
-            return false;
         }
+        return false;
     }
 
     private long checkQueryResponseTime() {

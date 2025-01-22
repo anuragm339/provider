@@ -16,6 +16,7 @@ public class SQLiteTableManager {
     private static final String CREATE_MESSAGES_TABLE = """
         CREATE TABLE IF NOT EXISTS messages (
             msg_offset       BIGINT PRIMARY KEY,
+            msg_key          text,
             type            VARCHAR(50) NOT NULL,
             created_utc     TIMESTAMP NOT NULL,
             data            BLOB NOT NULL,
