@@ -1,7 +1,9 @@
 package com.example.messaging.config;
 
 import com.example.messaging.core.pipeline.config.QueueConfiguration;
+import com.example.messaging.core.pipeline.impl.DeadLetterQueueService;
 import com.example.messaging.core.pipeline.impl.DefaultPipelineManager;
+import com.example.messaging.core.pipeline.impl.MessageDispatchOrchestrator;
 import com.example.messaging.core.pipeline.service.MessageProcessor;
 import com.example.messaging.core.pipeline.service.BatchProcessor;
 import com.example.messaging.core.pipeline.service.PipelineManager;
@@ -43,17 +45,16 @@ public class PipelineManagerFactory {
     @Singleton
     public PipelineManager pipelineManager(
             MessageProcessor messageProcessor,
-            BatchProcessor batchProcessor,
+            MessageDispatchOrchestrator MessageDispatchOrchestrator,
+            DeadLetterQueueService deadLetterQueueService,
             MessageStore messageStore,
             PipelineManagerConfig config, QueueConfiguration queueConfiguration) {
 
         return new DefaultPipelineManager(
                 messageProcessor,
-                batchProcessor,
                 messageStore,
-                customExecutor(),
-                queueConfiguration,
-                config.getThreadPoolSize()
+                MessageDispatchOrchestrator,
+                deadLetterQueueService
         );
     }
 }

@@ -126,7 +126,7 @@ public class DefaultMessageProcessor implements MessageProcessor {
 
     private void processMessageContent(Message message) {
         //store the message in the duplicate handler
-        bidirectionalDuplicateHandler.checkAndUpdate(message);
+       // bidirectionalDuplicateHandler.checkAndUpdate(message);
         // Placeholder for actual message processing logic
         // This would be implemented based on business requirements
         messagePublisher.publishMessage(message, "group-1")

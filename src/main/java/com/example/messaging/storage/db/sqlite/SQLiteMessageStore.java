@@ -14,6 +14,7 @@ import com.example.messaging.core.pipeline.service.ProcessingResult;
 import com.example.messaging.exceptions.ProcessingException;
 import com.example.messaging.exceptions.ErrorCode;
 
+import io.micronaut.context.annotation.Value;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 
 @Singleton
@@ -45,6 +47,12 @@ public class SQLiteMessageStore implements MessageStore {
             "SELECT msg_offset, success, checksum, processing_time FROM processing_results WHERE msg_offset = ?";
 
     private static final String COUNT_MESSAGES = "SELECT COUNT(*) FROM messages";
+
+    @Value("${message.store.batch-size:10}")
+    private int defaultBatchSize;
+
+    private static final String SELECT_MESSAGES_AFTER_OFFSET =
+            "SELECT * FROM messages WHERE msg_offset > ? and type= ? ORDER BY msg_offset ASC LIMIT ?";
 
     private final DataSource dataSource;
     private final SQLiteConfig config;
@@ -495,6 +503,46 @@ public class SQLiteMessageStore implements MessageStore {
                         ErrorCode.PROCESSING_FAILED.getCode(),
                         true,
                         e
+                );
+            }
+        }, executor);
+    }
+
+    @Override
+    public CompletableFuture<List<Message>> getMessagesAfterOffset(long offset,String type) {
+        return CompletableFuture.supplyAsync(() -> {
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(SELECT_MESSAGES_AFTER_OFFSET)) {
+
+                stmt.setLong(1, offset);
+                stmt.setString(2,type);
+                stmt.setInt(3, defaultBatchSize);
+
+                List<Message> messages = new ArrayList<>();
+
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        Message message = Message.builder()
+                                .msgOffset(rs.getLong("msg_offset"))
+                                .type(rs.getString("type"))
+                                .createdUtc(rs.getTimestamp("created_utc").toInstant())
+                                .data(rs.getBytes("data"))
+                                .build();
+
+                        messages.add(message);
+                    }
+                }
+
+                return messages;
+            } catch (SQLException e) {
+                logger.error("Failed to retrieve messages after offset", e);
+                throw new CompletionException(
+                        new ProcessingException(
+                                "Failed to retrieve messages",
+                                ErrorCode.PROCESSING_FAILED.getCode(),
+                                true,
+                                e
+                        )
                 );
             }
         }, executor);

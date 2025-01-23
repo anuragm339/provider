@@ -88,3 +88,13 @@ compression:
     bytes: 524288
   buffer:
     size: 32768
+
+message:
+  dlq:
+    storage:
+      path: /Users/anuragmishra/Desktop/workspace/messaging/aqeduct-provider
+  offset:
+    storage:
+      path: /Users/anuragmishra/Desktop/workspace/messaging/aqeduct-provider
+  dispatch:
+    polling-interval-ms: 100

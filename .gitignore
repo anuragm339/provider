@@ -44,3 +44,5 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+consumer_offsets.json
+dead_letter_queue.json

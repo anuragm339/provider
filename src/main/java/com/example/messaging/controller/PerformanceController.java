@@ -34,7 +34,7 @@ public class PerformanceController {
 
     @Post("/parallel-test")
     public HttpResponse<String> runParallelTest(
-            @QueryValue(defaultValue = "10") int numberOfConsumers,
+            @QueryValue(defaultValue = "14") int numberOfConsumers,
             @QueryValue(defaultValue = "1000") int messagesPerConsumer,
             @QueryValue(defaultValue = "1024") int messageSize) {
 

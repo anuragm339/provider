@@ -6,16 +6,14 @@ import com.example.messaging.transport.rsocket.model.TransportMessage;
 import jakarta.inject.Singleton;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Singleton
@@ -117,6 +115,13 @@ public class ConsumerRegistry {
                 .filter(ConsumerConnection::isActive);
     }
 
+    public Set<String> findActiveConsumerGroups() {
+        return consumerGroups.entrySet().stream()
+                .filter(entry -> hasActiveConsumers(entry.getKey()))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
+    }
+
     private static class PendingMessage {
         final TransportMessage message;
         final String groupId;
@@ -141,5 +146,22 @@ public class ConsumerRegistry {
             }
             return false;
         });
+    }
+
+    public List<ConsumerConnection> getActiveConsumersInGroup(String groupId) {
+        return consumerConnections.values().stream()
+                .filter(connection ->
+                        connection.getMetadata().getGroupId().equals(groupId) &&
+                                connection.isActive()
+                )
+                .collect(Collectors.toList());
+    }
+
+    public boolean hasActiveConsumers(String groupId) {
+        return consumerConnections.values().stream()
+                .anyMatch(connection ->
+                        connection.getMetadata().getGroupId().equals(groupId) &&
+                                connection.isActive()
+                );
     }
 }

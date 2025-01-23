@@ -72,4 +72,6 @@ public interface MessageStore {
     CompletableFuture<Integer> deleteMessagesWithOffsets(Set<Long> offsetsToDelete);
 
     CompletableFuture<Void> storeProcessingResultBatch(List<ProcessingResult> result);
+
+    CompletableFuture<List<Message>> getMessagesAfterOffset(long offset,String type);
 }
