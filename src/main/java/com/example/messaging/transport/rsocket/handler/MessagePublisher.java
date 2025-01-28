@@ -1,5 +1,6 @@
 package com.example.messaging.transport.rsocket.handler;
 
+import com.example.messaging.models.BatchMessage;
 import com.example.messaging.models.Message;
 import com.example.messaging.transport.rsocket.consumer.ConsumerRegistry;
 import com.example.messaging.transport.rsocket.model.TransportMessage;
@@ -10,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.List;
 
 @Singleton
 public class MessagePublisher {
@@ -23,6 +25,31 @@ public class MessagePublisher {
         this.consumerRegistry = consumerRegistry;
     }
 
+    public Mono<Void> publishBatchMessage(BatchMessage batchMessage, String groupId) {
+        logger.debug("Publishing message {} to group {} {}", batchMessage.getBatchId(), batchMessage.getType(),groupId);
+
+        try {
+            TransportMessage transportMessage = new TransportMessage(batchMessage);
+            return consumerRegistry.broadcastToGroup(groupId, transportMessage)
+                    .timeout(PUBLISH_TIMEOUT)
+                    .doOnSubscribe(__ ->
+                            logger.debug("Starting broadcast of message {} to group {}",
+                                    batchMessage.getBatchId(), groupId))
+                    .doOnSuccess(__ ->
+                            logger.debug("Successfully broadcast message {} to group {}",
+                                    batchMessage.getBatchId(), groupId))
+                    .doOnError(error ->
+                            logger.error("Failed to broadcast message {} to group {}: {}",
+                                    batchMessage.getBatchId(), groupId, error.getMessage()))
+                    .onErrorResume(error -> {
+                        logger.error("Error during broadcast, ensuring cleanup", error);
+                        return Mono.empty();
+                    });
+        } catch (Exception e) {
+            logger.error("Error creating transport message for {}", batchMessage.getBatchId(), e);
+            return Mono.error(e);
+        }
+    }
     public Mono<Void> publishMessage(Message message, String groupId) {
         logger.debug("Publishing message {} to group {}", message.getMsgOffset(), groupId);
 

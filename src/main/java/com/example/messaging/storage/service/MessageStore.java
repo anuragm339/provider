@@ -2,6 +2,7 @@ package com.example.messaging.storage.service;
 
 import com.example.messaging.models.Message;
 import com.example.messaging.core.pipeline.service.ProcessingResult;
+import com.example.messaging.models.MessageState;
 import io.netty.util.internal.StringUtil;
 
 import java.util.List;
@@ -73,5 +74,14 @@ public interface MessageStore {
 
     CompletableFuture<Void> storeProcessingResultBatch(List<ProcessingResult> result);
 
-    CompletableFuture<List<Message>> getMessagesAfterOffset(long offset,String type);
+    List<Message> getMessagesAfterOffset(long offset,String type);
+
+    /**
+     * Retrieve messages by their offsets
+     * @param offsets List of message offsets to retrieve
+     * @return Future containing list of messages
+     */
+    CompletableFuture<List<Message>> getMessagesByOffsets(List<Long> offsets);
+
+    CompletableFuture<Void> updateMessageStatus(List<Long> offset, MessageState messageState, String consumerId);
 }

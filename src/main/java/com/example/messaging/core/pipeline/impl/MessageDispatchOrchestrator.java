@@ -1,397 +1,319 @@
 package com.example.messaging.core.pipeline.impl;
 
-
+import com.example.messaging.core.pipeline.model.BatchStatus;
+import com.example.messaging.models.BatchMessage;
 import com.example.messaging.models.Message;
+import com.example.messaging.models.MessageState;
 import com.example.messaging.storage.db.sqlite.ConsumerOffsetTracker;
+import com.example.messaging.storage.service.MessageStore;
 import com.example.messaging.transport.rsocket.consumer.ConsumerRegistry;
 import com.example.messaging.transport.rsocket.handler.MessagePublisher;
-import com.example.messaging.storage.service.MessageStore;
-
+import io.micronaut.context.annotation.Context;
 import io.micronaut.context.annotation.Value;
 import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
+@Context
 @Singleton
 public class MessageDispatchOrchestrator {
     private static final Logger logger = LoggerFactory.getLogger(MessageDispatchOrchestrator.class);
 
-    // Dependencies
     private final MessageStore messageStore;
     private final ConsumerRegistry consumerRegistry;
     private final ConsumerOffsetTracker offsetTracker;
-    private final DeadLetterQueueService deadLetterQueueService;
     private final MessagePublisher messagePublisher;
+    private final Map<String, BatchStatus> batchStatuses = new ConcurrentHashMap<>();
+    private final AtomicLong batchSequencer = new AtomicLong(0);
 
-    // Configuration Parameters
-    @Value("${message.dispatch.polling-interval-ms:5000}")
-    private long pollingIntervalMs;
+    @Value("${message.dispatch.batch-timeout-ms:30000}")
+    private long batchTimeoutMs;
 
-    @Value("${message.dispatch.batch-size:100}")
-    private int batchSize;
+    @Value("${message.dispatch.max-retries:3}")
+    private int maxRetries;
 
-    @Value("${message.dispatch.max-retry-count:1000}")
-    private int maxRetryCount;
-
-    @Value("${message.dispatch.retry-delay-ms:1000}")
-    private long retryDelayMs;
-
-    // Thread Management
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
-    private Thread dispatchThread;
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
-    // Metrics Tracking
-    private final ConcurrentMap<String, DispatchMetrics> groupMetrics = new ConcurrentHashMap<>();
-
-    // Inner class for tracking dispatch metrics
-    private static class DispatchMetrics {
-        long totalMessagesSent = 0;
-        long totalDispatchFailures = 0;
-        long lastSuccessfulDispatchTime = 0;
-
-        synchronized void incrementMessagesSent() {
-            totalMessagesSent++;
-            lastSuccessfulDispatchTime = System.currentTimeMillis();
-        }
-
-        synchronized void incrementDispatchFailures() {
-            totalDispatchFailures++;
-        }
-    }
-
-    // Constructor with all dependencies
     public MessageDispatchOrchestrator(
             MessageStore messageStore,
             ConsumerRegistry consumerRegistry,
             ConsumerOffsetTracker offsetTracker,
-            DeadLetterQueueService deadLetterQueueService,
-            MessagePublisher messagePublisher
-    ) {
+            MessagePublisher messagePublisher) {
         this.messageStore = messageStore;
         this.consumerRegistry = consumerRegistry;
         this.offsetTracker = offsetTracker;
-        this.deadLetterQueueService = deadLetterQueueService;
         this.messagePublisher = messagePublisher;
     }
 
-    // Existing methods from previous implementation...
-
-    /**
-     * Dispatch messages for a specific consumer group
-     * @param groupId Consumer group identifier
-     * @return Mono<Void> representing the dispatch operation
-     */
     public void dispatchToGroup(String groupId) {
-        List<Message> unprocessedMessages = findUnprocessedMessagesForGroup(groupId);
-
-        if (unprocessedMessages.isEmpty()) {
-            return ;
+        if (hasPendingBatch(groupId)) {
+            logger.debug("Skipping dispatch for group {} as it has pending batch", groupId);
+            return;
         }
 
-        dispatchMessageBatch(groupId, unprocessedMessages);
+        List<Message> unprocessedMessages = findUnprocessedMessagesForGroup(groupId);
+        if (!unprocessedMessages.isEmpty()) {
+            dispatchMessageBatch(groupId, unprocessedMessages);
+        }
     }
 
-    /**
-     * Find unprocessed messages for a specific group
-     * @param groupId Consumer group identifier
-     * @return List of unprocessed messages
-     */
+    private boolean hasPendingBatch(String groupId) {
+        return batchStatuses.values().stream()
+                .anyMatch(status ->
+                        status.getGroupId().equals(groupId) &&
+                                !status.isComplete() &&
+                                !status.isExpired(batchTimeoutMs)
+                );
+    }
+
     private List<Message> findUnprocessedMessagesForGroup(String groupId) {
         long lastProcessedOffset = offsetTracker.getLastProcessedOffset(groupId);
-        String[] split = groupId.split("-");
-        groupId="type-"+split[1];
+
         try {
-            return messageStore.getMessagesAfterOffset(lastProcessedOffset,groupId)
-                    .get(10, TimeUnit.SECONDS)
-                    .stream()
-                    .limit(batchSize)
-                    .collect(Collectors.toList());
+            List<Message> messagesAfterOffset = messageStore.getMessagesAfterOffset(lastProcessedOffset, groupId);
+            logger.info("Found {} unprocessed messages for group {}", messagesAfterOffset.size(), groupId);
+            return messagesAfterOffset;
         } catch (Exception e) {
             logger.error("Failed to retrieve unprocessed messages", e);
             return Collections.emptyList();
         }
     }
 
-    /**
-     * Dispatch a batch of messages to a group
-     *
-     * @param groupId  Consumer group identifier
-     * @param messages List of messages to dispatch
-     * @return Mono<Void> representing the batch dispatch operation
-     */
     private void dispatchMessageBatch(String groupId, List<Message> messages) {
-        DispatchMetrics metrics = groupMetrics.computeIfAbsent(
+        String batchId = generateBatchId(groupId);
+        long lastSuccessfulOffset = offsetTracker.getLastProcessedOffset(groupId);
+        BatchMessage batchMessage = new BatchMessage(batchId, (long) messages.size(), messages, groupId);
+
+        // Create and store batch status before publishing
+        BatchStatus batchStatus = new BatchStatus(
+                batchId,
                 groupId,
-                k -> new DispatchMetrics()
+                messages.size(),
+                messages.stream()
+                        .map(Message::getMsgOffset)
+                        .collect(Collectors.toList()),
+                lastSuccessfulOffset
+        );
+        batchStatuses.put(batchId, batchStatus);
+
+        logger.info("Created new batch {} for group {} with {} messages",
+                batchId, groupId, messages.size());
+
+        // Schedule batch timeout check
+        scheduler.schedule(
+                () -> checkBatchTimeout(batchId),
+                batchTimeoutMs,
+                TimeUnit.MILLISECONDS
         );
 
-        if (messages.isEmpty()) {
-            logger.warn("No messages to dispatch for groupId: {}", groupId);
-            return ;
-        }
-
-        logger.info("Dispatching message batch for groupId: {} with {} messages", groupId, messages.size());
-        messages.stream().forEach(message -> {
-            messagePublisher.publishMessage(message, groupId)
-                    .doOnSubscribe(__ -> logger.debug("Starting publish for message {}", message.getMsgOffset()))
-                    .doOnSuccess(__ -> {
-                        logger.debug("Successfully published message {}", message.getMsgOffset());
-                        metrics.incrementMessagesSent();
-                        updateConsumerOffset(groupId, message);
-                    })
-                    .doOnError(error -> logger.error("Failed to publish message {}: {}", message.getMsgOffset(), error.getMessage()))
-                    .block();
-        });
-    }
-
-
-
-    /**
-     * Dispatch a single message to a group
-     * @param groupId Consumer group identifier
-     * @param message Message to dispatch
-     * @return Mono<Void> representing the single message dispatch
-     */
-    private Mono<Void> dispatchSingleMessage(String groupId, Message message) {
-        logger.debug("Starting dispatch for message {} in group {}", message.getMsgOffset(), groupId);
-
-        return messagePublisher.publishMessage(message, groupId)
-                .timeout(Duration.ofSeconds(100))
+        messagePublisher.publishBatchMessage(batchMessage, groupId)
                 .doOnSuccess(__ -> {
-                    logger.debug("Successfully dispatched message {} in group {}", message.getMsgOffset(), groupId);
-                    updateConsumerOffset(groupId, message);
+                    logger.debug("Published batch {} for group {}", batchId, groupId);
                 })
-                .onErrorResume(error -> {
-                    if (error instanceof TimeoutException) {
-                        logger.error("Dispatch timed out for message {} in group {}", message.getMsgOffset(), groupId, error);
-                    } else {
-                        logger.error("Failed to dispatch message {} in group {}", message.getMsgOffset(), groupId, error);
-                    }
-                    return Mono.empty();
+                .doOnError(error -> {
+                    logger.error("Failed to publish batch {} for group {}: {}",
+                            batchId, groupId, error.getMessage());
+                    cleanupBatch(batchId);
                 })
-                .doOnTerminate(() -> logger.debug("Completed processing for message {} in group {}", message.getMsgOffset(), groupId));
+                .block();
     }
 
-
-    /**
-     * Update consumer offset after successful dispatch
-     * @param groupId Consumer group identifier
-     * @param message Dispatched message
-     */
-    private void updateConsumerOffset(String groupId, Message message) {
-        consumerRegistry.getActiveConsumersInGroup(groupId)
-                .stream()
-                .findFirst()
-                .ifPresent(consumer ->
-                        offsetTracker.updateConsumerOffset(
-                                consumer.getMetadata().getConsumerId(),
-                                groupId,
-                                message.getMsgOffset()
-                        )
-                );
+    private String generateBatchId(String groupId) {
+        return String.format("%s-%d-%d",
+                groupId,
+                System.currentTimeMillis(),
+                batchSequencer.incrementAndGet()
+        );
     }
 
-    /**
-     * Handle dispatch errors
-     * @param error Error during dispatch
-     * @return Mono<Void> for error handling
-     */
-    private Mono handleDispatchError(Throwable error) {
-        logger.error("Dispatch error", error);
+    private void checkBatchTimeout(String batchId) {
+        BatchStatus status = batchStatuses.get(batchId);
+        if (status != null && !status.isComplete() && status.isExpired(batchTimeoutMs)) {
+            handleBatchTimeout(status);
+        }
+    }
+
+    private void handleBatchTimeout(BatchStatus status) {
+        if (status.getRetryCount() >= maxRetries) {
+            logger.error("Batch {} exceeded max retries. Moving to DLQ.", status.getBatchId());
+            // Reset offset to last successful batch on failure
+            offsetTracker.updateConsumerOffset(
+                    status.getGroupId(),
+                    status.getGroupId(),
+                    status.getPreviousSuccessfulBatchOffset()
+            );
+
+            cleanupBatch(status.getBatchId());
+        } else {
+            retryBatch(status);
+        }
+    }
+
+    private void retryBatch(BatchStatus status) {
+        List<Long> unackedOffsets = status.getUnacknowledgedOffsets();
+        if (!unackedOffsets.isEmpty()) {
+            try {
+                List<Message> messages = messageStore.getMessagesByOffsets(unackedOffsets)
+                        .get(10, TimeUnit.SECONDS);
+
+                status.incrementRetryCount();
+                logger.info("Retrying batch {} (attempt {})", status.getBatchId(), status.getRetryCount());
+
+                dispatchMessageBatch(status.getGroupId(), messages);
+            } catch (Exception e) {
+                logger.error("Failed to retry batch {}", status.getBatchId(), e);
+            }
+        }
+    }
+
+    public Mono<Void> handleBatchAcknowledgment(String batchId, List<Long> offsets, String consumerId) {
+        BatchStatus status = batchStatuses.get(batchId);
+        if (status != null) {
+            //status.acknowledgeMessage(offset, consumerId);
+            messageStore.updateMessageStatus(offsets, MessageState.DELIVERED, consumerId);
+            if (status.isComplete()) {
+                logger.info("Batch {} completed successfully", batchId);
+                updateConsumerOffsets(status);
+                cleanupBatch(batchId);
+            }
+        }
         return Mono.empty();
     }
 
-    /**
-     * Handle individual message dispatch failure
-     * @param groupId Consumer group identifier
-     * @param message Failed message
-     * @param error Dispatch error
-     */
-    private void handleMessageDispatchFailure(
-            String groupId,
-            Message message,
-            Throwable error
-    ) {
-        // Move to Dead Letter Queue if max retries exceeded
-        if (message.getRetryCount() >= maxRetryCount) {
-            deadLetterQueueService.enqueue(
-                    message,
-                    "Dispatch failed after " + maxRetryCount + " attempts: " + error.getMessage()
-            );
+    private void updateConsumerOffsets(BatchStatus status) {
+        if (status.isComplete()) {
+            long maxOffset = getMaxOffset(status);
+            if (maxOffset > status.getPreviousSuccessfulBatchOffset()) {
+                offsetTracker.updateConsumerOffset(
+                        status.getGroupId(),
+                        status.getGroupId(),
+                        maxOffset
+                );
+                logger.info("Updated consumer offset for group {} to {}",
+                        status.getGroupId(), maxOffset);
+            } else {
+                logger.warn("Batch {} has non-contiguous offsets, not updating consumer offset",
+                        status.getBatchId());
+            }
         } else {
-            // Retry mechanism
-            Message retriedMessage = Message
-                    .from(message)
-                    .retryCount(message.getRetryCount() + 1)
-                    .build();
-
-            // Schedule retry with backoff
-            scheduleRetry(groupId, retriedMessage);
+            offsetTracker.updateConsumerOffset(
+                    status.getGroupId(),
+                    status.getGroupId(),
+                    status.getPreviousSuccessfulBatchOffset()
+            );
+            logger.warn("Batch {} was not complete, reset to previous offset {}",
+                    status.getBatchId(), status.getPreviousSuccessfulBatchOffset());
         }
     }
 
-    /**
-     * Schedule message retry with exponential backoff
-     * @param groupId Consumer group identifier
-     * @param message Message to retry
-     */
-    private void scheduleRetry(String groupId, Message message) {
-        CompletableFuture.runAsync(() -> {
-            try {
-                Thread.sleep(calculateBackoffDelay(message.getRetryCount()));
-                dispatchSingleMessage(groupId, message).block();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
+    private long getMaxOffset(BatchStatus status) {
+        return status.getUnacknowledgedOffsets().stream()
+                .mapToLong(Long::longValue)
+                .max()
+                .orElse(0L);
     }
 
-    /**
-     * Calculate backoff delay with jitter
-     * @param retryCount Number of retry attempts
-     * @return Backoff delay in milliseconds
-     */
-    private long calculateBackoffDelay(int retryCount) {
-        long baseDelay = retryDelayMs;
-        long delay = baseDelay * (long) Math.pow(2, retryCount);
-        double jitter = 1 + (Math.random() * 0.5);
-        return (long) (delay * jitter);
-    }
-
-    /**
-     * Get dispatch metrics for a specific group
-     * @param groupId Consumer group identifier
-     * @return DispatchMetrics for the group
-     */
-    public DispatchMetrics getGroupMetrics(String groupId) {
-        return groupMetrics.getOrDefault(groupId, new DispatchMetrics());
-    }
-
-    /**
-     * Clear metrics for a specific group
-     * @param groupId Consumer group identifier
-     */
-    public void clearGroupMetrics(String groupId) {
-        groupMetrics.remove(groupId);
+    private void cleanupBatch(String batchId) {
+        batchStatuses.remove(batchId);
+        logger.debug("Cleaned up batch {}", batchId);
     }
 
     @PostConstruct
-    public synchronized void start() {
-        // Ensure we're not already running
+    public void start() {
         if (isRunning.compareAndSet(false, true)) {
             logger.info("Starting Message Dispatch Orchestrator");
 
-            // Create and configure the dispatch thread
-            dispatchThread = new Thread(this::dispatchLoop, "message-dispatch-orchestrator");
-            dispatchThread.setPriority(Thread.MAX_PRIORITY);
-            dispatchThread.setUncaughtExceptionHandler((thread, throwable) -> {
-                logger.error("Uncaught exception in dispatch thread", throwable);
-                stop(); // Stop the orchestrator if there's an unhandled exception
-            });
+            scheduler.scheduleAtFixedRate(
+                    this::processPendingMessages,
+                    0,
+                    1000,
+                    TimeUnit.MILLISECONDS
+            );
 
-            // Start the thread
-            dispatchThread.start();
-        } else {
-            logger.warn("Message Dispatch Orchestrator is already running");
+            scheduler.scheduleAtFixedRate(
+                    this::cleanupExpiredBatches,
+                    batchTimeoutMs,
+                    batchTimeoutMs / 2,
+                    TimeUnit.MILLISECONDS
+            );
         }
     }
 
-    @PreDestroy
-    public synchronized void stop() {
-        // Ensure we're currently running
-        if (isRunning.compareAndSet(true, false)) {
-            logger.info("Stopping Message Dispatch Orchestrator");
-
-            // Interrupt the dispatch thread
-            if (dispatchThread != null) {
-                dispatchThread.interrupt();
-
-                try {
-                    // Wait for the thread to terminate
-                    dispatchThread.join(10000); // 10-second timeout
-                } catch (InterruptedException e) {
-                    // Restore interrupt status
-                    Thread.currentThread().interrupt();
-                    logger.warn("Interrupted while waiting for dispatch thread to stop");
-                }
-
-                // Force shutdown if thread doesn't terminate
-                if (dispatchThread.isAlive()) {
-                    logger.warn("Dispatch thread did not terminate gracefully");
-                    dispatchThread.stop(); // Last resort, not recommended in production
-                }
-            }
-
-            // Clear any resources or perform cleanup
-            clearResources();
-
-            logger.info("Message Dispatch Orchestrator stopped");
-        } else {
-            logger.warn("Message Dispatch Orchestrator is not running");
+    private void processPendingMessages() {
+        if (!isRunning.get()) {
+            return;
         }
-    }
-
-    /**
-     * Clear resources and reset state
-     */
-    private void clearResources() {
-        // Clear metrics
-        groupMetrics.clear();
-    }
-
-    /**
-     * Main dispatch loop
-     * Runs continuously when the orchestrator is active
-     */
-    private void dispatchLoop() {
-        while (isRunning.get()) {
-            try {
-                // Find all active consumer groups
-                Set<String> activeConsumerGroups = consumerRegistry.findActiveConsumerGroups();
-
-                // Process each consumer group
-                activeConsumerGroups.forEach(this::processConsumerGroup);
-
-                // Sleep between polling cycles
-                Thread.sleep(pollingIntervalMs);
-            } catch (InterruptedException e) {
-                // Restore interrupt status and break the loop
-                Thread.currentThread().interrupt();
-                break;
-            } catch (Exception e) {
-                // Log and handle unexpected errors
-                handleDispatchLoopException(e);
-            }
-        }
-    }
-
-    private void processConsumerGroup(String s) {
-        dispatchToGroup(s);
-    }
-
-    /**
-     * Handle exceptions in the dispatch loop
-     * @param e Exception encountered
-     */
-    private void handleDispatchLoopException(Exception e) {
-        logger.error("Error in dispatch loop", e);
 
         try {
-            // Exponential backoff
-            long backoffTime = Math.min(pollingIntervalMs * 2, 60000); // Max 1 minute
-            Thread.sleep(backoffTime);
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            isRunning.set(false);
+            Set<String> activeGroups = consumerRegistry.findActiveConsumerGroups();
+            logger.debug("Processing messages for {} active consumer groups", activeGroups.size());
+
+            for (String groupId : activeGroups) {
+                try {
+                    dispatchToGroup(groupId);
+                } catch (Exception e) {
+                    logger.error("Error processing messages for group {}", groupId, e);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error in message processing loop", e);
         }
+    }
+
+    private void cleanupExpiredBatches() {
+        if (!isRunning.get()) {
+            return;
+        }
+
+        try {
+            List<BatchStatus> expiredBatches = batchStatuses.values().stream()
+                    .filter(status -> status.isExpired(batchTimeoutMs))
+                    .collect(Collectors.toList());
+
+            for (BatchStatus status : expiredBatches) {
+                handleBatchTimeout(status);
+            }
+        } catch (Exception e) {
+            logger.error("Error cleaning up expired batches", e);
+        }
+    }
+
+    public void stop() {
+        if (isRunning.compareAndSet(true, false)) {
+            logger.info("Stopping Message Dispatch Orchestrator");
+            scheduler.shutdown();
+            try {
+                if (!scheduler.awaitTermination(60, TimeUnit.SECONDS)) {
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                scheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    public Map<String, Object> getBatchMetrics() {
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("totalBatches", batchStatuses.size());
+        metrics.put("completedBatches", batchStatuses.values().stream()
+                .filter(BatchStatus::isComplete)
+                .count());
+        metrics.put("expiredBatches", batchStatuses.values().stream()
+                .filter(s -> s.isExpired(batchTimeoutMs))
+                .count());
+        return metrics;
     }
 }

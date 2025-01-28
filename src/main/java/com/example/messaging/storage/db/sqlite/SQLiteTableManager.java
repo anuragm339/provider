@@ -20,9 +20,7 @@ public class SQLiteTableManager {
             type            VARCHAR(50) NOT NULL,
             created_utc     TIMESTAMP NOT NULL,
             data            BLOB NOT NULL,
-            compressed      BOOLEAN DEFAULT FALSE,
-            original_size   INTEGER,
-            compressed_size INTEGER
+            state           text DEFAULT 'PENDING'
         )
     """;
 
@@ -33,8 +31,7 @@ public class SQLiteTableManager {
             checksum           VARCHAR(64) NOT NULL,
             processing_time    BIGINT NOT NULL,
             error_code         VARCHAR(10),
-            error_message      TEXT,
-            FOREIGN KEY (msg_offset) REFERENCES messages(msg_offset)
+            error_message      TEXT
         )
     """;
 
@@ -86,7 +83,7 @@ public class SQLiteTableManager {
             // Check messages table structure
             conn.prepareStatement("""
                 SELECT msg_offset, type, created_utc, data, 
-                       compressed, original_size, compressed_size 
+                       state, msg_key 
                 FROM messages WHERE 1=0
                 """).executeQuery();
 

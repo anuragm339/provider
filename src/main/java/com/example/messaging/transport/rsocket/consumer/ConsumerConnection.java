@@ -1,18 +1,22 @@
 package com.example.messaging.transport.rsocket.consumer;
 
+import com.example.messaging.core.pipeline.impl.MessageDispatchOrchestrator;
 import com.example.messaging.transport.rsocket.handler.ConsumerRequestHandler;
 import com.example.messaging.transport.rsocket.handler.ReplayRequestHandler;
 import com.example.messaging.transport.rsocket.model.TransportMessage;
 import com.example.messaging.transport.rsocket.protocol.MessageCodec;
+import io.micronaut.context.annotation.Prototype;
 import io.netty.buffer.ByteBuf;
 import io.rsocket.Payload;
 import io.rsocket.RSocket;
 import io.rsocket.util.DefaultPayload;
+import jakarta.inject.Singleton;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@Singleton
 public class ConsumerConnection {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerConnection.class);
 
@@ -20,12 +24,14 @@ public class ConsumerConnection {
     private final RSocket rSocket;
     private final MessageCodec messageCodec;
     private final ConsumerRequestHandler requestHandler;
+    private final MessageDispatchOrchestrator messageDispatchOrchestrator;
 
-    public ConsumerConnection(ConsumerMetadata metadata, RSocket rSocket, MessageCodec messageCodec) {
+    public ConsumerConnection(ConsumerMetadata metadata, RSocket rSocket, MessageCodec messageCodec,MessageDispatchOrchestrator messageDispatchOrchestrator) {
         this.metadata = metadata;
         this.rSocket = rSocket;
         this.messageCodec = messageCodec;
-        this.requestHandler = new ConsumerRequestHandler(this, messageCodec, null);
+        this.messageDispatchOrchestrator=messageDispatchOrchestrator;
+        this.requestHandler = new ConsumerRequestHandler(this, messageCodec, messageDispatchOrchestrator);
 
         // Monitor connection
         rSocket.onClose()

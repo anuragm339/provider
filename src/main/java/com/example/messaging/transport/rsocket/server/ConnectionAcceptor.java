@@ -1,5 +1,6 @@
 package com.example.messaging.transport.rsocket.server;
 
+import com.example.messaging.core.pipeline.impl.MessageDispatchOrchestrator;
 import com.example.messaging.exceptions.ConnectionException;
 import com.example.messaging.exceptions.ErrorCode;
 import com.example.messaging.transport.rsocket.consumer.ConsumerConnection;
@@ -10,6 +11,7 @@ import com.example.messaging.transport.rsocket.handler.ReplayRequestHandler;
 import com.example.messaging.transport.rsocket.protocol.MessageCodec;
 import com.example.messaging.transport.rsocket.protocol.ProtocolConstants;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.rsocket.ConnectionSetupPayload;
 import io.rsocket.RSocket;
 import io.rsocket.SocketAcceptor;
@@ -29,74 +31,66 @@ public class ConnectionAcceptor implements SocketAcceptor {
 
     private final ConsumerRegistry consumerRegistry;
     private final MessageCodec messageCodec;
-    private final ReplayRequestHandler replayRequestHandler;
+    private final ConsumerRequestHandlerFactory handlerFactory;
+    private final ObjectMapper objectMapper;
+    private final MessageDispatchOrchestrator messageDispatchOrchestrator;
 
     @Inject
     public ConnectionAcceptor(
             ConsumerRegistry consumerRegistry,
             MessageCodec messageCodec,
-            ReplayRequestHandler replayRequestHandler) {
+            ConsumerRequestHandlerFactory handlerFactory,MessageDispatchOrchestrator messageDispatchOrchestrator) {
         this.consumerRegistry = consumerRegistry;
         this.messageCodec = messageCodec;
-        this.replayRequestHandler = replayRequestHandler;
+        this.handlerFactory = handlerFactory;
+        this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        this.messageDispatchOrchestrator=messageDispatchOrchestrator;
     }
 
     @Override
     public Mono<RSocket> accept(ConnectionSetupPayload setup, RSocket sendingSocket) {
         return Mono.defer(() -> {
             try {
-                ConsumerMetadata metadata = new ObjectMapper().readValue(setup.getMetadataUtf8(), ConsumerMetadata.class);
+                ConsumerMetadata metadata = objectMapper.readValue(
+                        setup.getMetadataUtf8(),
+                        ConsumerMetadata.class
+                );
 
+                logger.info("Accepting new connection from consumer: {}",
+                        metadata.getConsumerId());
 
                 // Create consumer connection
-                ConsumerConnection connection = new ConsumerConnection(metadata, sendingSocket, messageCodec);
+                ConsumerConnection connection = new ConsumerConnection(
+                        metadata,
+                        sendingSocket,
+                        messageCodec,messageDispatchOrchestrator
+                );
 
-                // Create handler
-                ConsumerRequestHandler handler = new ConsumerRequestHandler(connection, messageCodec, replayRequestHandler);
-
-                // Register consumer AFTER creating handler
+                // Register consumer
                 consumerRegistry.registerConsumer(connection);
 
-                logger.debug("Created RSocket handler for consumer: {}", metadata.getConsumerId());
+                // Create handler using factory
+                ConsumerRequestHandler handler = handlerFactory.create(connection);
 
-                // This is important - return the handler
+                // Setup connection monitoring
+                connection.onClose()
+                        .doFinally(signalType -> {
+                            logger.info("Connection closed for consumer: {}",
+                                    metadata.getConsumerId());
+                            consumerRegistry.unregisterConsumer(metadata.getConsumerId());
+                        })
+                        .subscribe();
+
                 return Mono.just(handler);
+
             } catch (Exception e) {
-                logger.error("Failed to accept connection", e);
-                return Mono.error(e);
+                logger.error("Failed to establish connection", e);
+                return Mono.error(new ConnectionException(
+                        "Failed to establish connection",
+                        ErrorCode.CONNECTION_FAILED.getCode(),
+                        e
+                ));
             }
         });
-    }
-
-    private String getConsumerId(ConnectionSetupPayload setup) {
-        String consumerId = setup.getMetadataUtf8();
-        if (consumerId == null || consumerId.isEmpty()) {
-            throw new ConnectionException(
-                    "Consumer ID is required",
-                    ErrorCode.CONNECTION_FAILED.getCode()
-            );
-        }
-        return consumerId;
-    }
-
-    private String getGroupId(ConnectionSetupPayload setup) {
-        String groupId = setup.getDataUtf8();
-        if (groupId == null || groupId.isEmpty()) {
-            groupId = "default"; // Fallback to default group
-        }
-        return groupId;
-    }
-
-    private boolean isValidProtocolVersion(ConnectionSetupPayload setup) {
-        try {
-            String version = setup.getMetadataUtf8();
-            ObjectMapper objectMapper = new ObjectMapper();
-            Map map = objectMapper.readValue(version, Map.class);
-            return map!=null;
-        } catch (Exception e) {
-            System.out.println("Failed to validate protocol version: " + e.getMessage());
-            e.printStackTrace();
-            return false;
-        }
     }
 }

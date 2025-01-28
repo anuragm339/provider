@@ -1,6 +1,7 @@
 package com.example.messaging.storage.db.sqlite;
 
 import com.example.messaging.core.pipeline.impl.DefaultProcessingResult;
+import com.example.messaging.models.MessageState;
 import com.example.messaging.monitoring.alerts.PerformanceAlert;
 import com.example.messaging.monitoring.health.CompressionStats;
 import com.example.messaging.storage.db.health.DatabaseHealthManager;
@@ -21,21 +22,19 @@ import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
+import java.util.stream.Collectors;
 
 @Singleton
 public class SQLiteMessageStore implements MessageStore {
     private static final Logger logger = LoggerFactory.getLogger(SQLiteMessageStore.class);
 
     private static final String INSERT_MESSAGE =
-            "INSERT INTO messages (msg_offset, msg_key,type, created_utc, data, compressed, original_size, compressed_size) " +
-                    "VALUES (?, ?,?, ?, ?, ?, ?, ?)";
+            "INSERT INTO messages (msg_offset, msg_key,type, created_utc, data) " +
+                    "VALUES (?, ?,?, ?, ? )";
 
     private static final String SELECT_MESSAGE =
             "SELECT msg_offset, type, created_utc, data, compressed FROM messages WHERE msg_offset = ?";
@@ -48,11 +47,15 @@ public class SQLiteMessageStore implements MessageStore {
 
     private static final String COUNT_MESSAGES = "SELECT COUNT(*) FROM messages";
 
+    private static final String UPDATE_PROCESSING_RESULT = "UPDATE processing_results SET success = ? WHERE msg_offset  IN (%s)";
+
+    private static final String UPDATE_MSG_STATE = "UPDATE messages SET state = ? WHERE msg_offset IN (%s);";
+
     @Value("${message.store.batch-size:10}")
     private int defaultBatchSize;
 
     private static final String SELECT_MESSAGES_AFTER_OFFSET =
-            "SELECT * FROM messages WHERE msg_offset > ? and type= ? ORDER BY msg_offset ASC LIMIT ?";
+            "SELECT * FROM messages WHERE msg_offset > ? and type= ? and state != 'DELIVERED' ORDER BY msg_offset ASC LIMIT ?";
 
     private final DataSource dataSource;
     private final SQLiteConfig config;
@@ -91,9 +94,9 @@ public class SQLiteMessageStore implements MessageStore {
                  PreparedStatement stmt = conn.prepareStatement(INSERT_MESSAGE)) {
 
                 byte[] dataToStore = message.getData();
-                boolean isCompressed = false;
-                int originalSize = dataToStore.length;
-                int compressedSize = originalSize;
+//                boolean isCompressed = false;
+//                int originalSize = dataToStore.length;
+//                int compressedSize = originalSize;
 
 //                if (compression.shouldCompress(message)) {
 //                    dataToStore = compression.compressData(message.getData());
@@ -106,10 +109,6 @@ public class SQLiteMessageStore implements MessageStore {
                 stmt.setString(3, message.getType());
                 stmt.setTimestamp(4, Timestamp.from(message.getCreatedUtc()));
                 stmt.setBytes(5, dataToStore);
-                stmt.setBoolean(6, isCompressed);
-                stmt.setInt(7, originalSize);
-                stmt.setInt(8, compressedSize);
-
                 stmt.executeUpdate();
 
                 PreparedStatement preparedStatement = conn.prepareStatement(COUNT_MESSAGES);
@@ -509,42 +508,151 @@ public class SQLiteMessageStore implements MessageStore {
     }
 
     @Override
-    public CompletableFuture<List<Message>> getMessagesAfterOffset(long offset,String type) {
+    public List<Message> getMessagesAfterOffset(long offset,String type) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(SELECT_MESSAGES_AFTER_OFFSET)) {
+
+            stmt.setLong(1, offset);
+            stmt.setString(2,type);
+            stmt.setInt(3, defaultBatchSize);
+
+            List<Message> messages = new ArrayList<>();
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    Message message = Message.builder()
+                            .msgOffset(rs.getLong("msg_offset"))
+                            .type(rs.getString("type"))
+                            .createdUtc(rs.getTimestamp("created_utc").toInstant())
+                            .data(rs.getBytes("data"))
+                            .build();
+
+                    messages.add(message);
+                }
+            }
+
+            return messages;
+        } catch (SQLException e) {
+            logger.error("Failed to retrieve messages after offset", e);
+            throw new CompletionException(
+                    new ProcessingException(
+                            "Failed to retrieve messages",
+                            ErrorCode.PROCESSING_FAILED.getCode(),
+                            true,
+                            e
+                    )
+            );
+        }
+    }
+    @Override
+    public CompletableFuture<List<Message>> getMessagesByOffsets(List<Long> offsets) {
         return CompletableFuture.supplyAsync(() -> {
-            try (Connection conn = dataSource.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(SELECT_MESSAGES_AFTER_OFFSET)) {
+            List<Message> messages = new ArrayList<>();
 
-                stmt.setLong(1, offset);
-                stmt.setString(2,type);
-                stmt.setInt(3, defaultBatchSize);
+            try (Connection conn = dataSource.getConnection()) {
+                // Create parameterized query with correct number of placeholders
+                String placeholders = String.join(",", Collections.nCopies(offsets.size(), "?"));
+                String sql = "SELECT msg_offset, msg_key, type, created_utc, data " +
+                        "FROM messages WHERE msg_offset IN (" + placeholders + ") " +
+                        "ORDER BY msg_offset ASC";
 
-                List<Message> messages = new ArrayList<>();
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    // Set parameters
+                    for (int i = 0; i < offsets.size(); i++) {
+                        stmt.setLong(i + 1, offsets.get(i));
+                    }
 
-                try (ResultSet rs = stmt.executeQuery()) {
+                    ResultSet rs = stmt.executeQuery();
                     while (rs.next()) {
+                        byte[] data = rs.getBytes("data");
+
                         Message message = Message.builder()
                                 .msgOffset(rs.getLong("msg_offset"))
+                                .msgKey(rs.getString("msg_key"))
                                 .type(rs.getString("type"))
                                 .createdUtc(rs.getTimestamp("created_utc").toInstant())
-                                .data(rs.getBytes("data"))
+                                .data(data)
                                 .build();
 
                         messages.add(message);
                     }
                 }
-
-                return messages;
             } catch (SQLException e) {
-                logger.error("Failed to retrieve messages after offset", e);
-                throw new CompletionException(
-                        new ProcessingException(
-                                "Failed to retrieve messages",
-                                ErrorCode.PROCESSING_FAILED.getCode(),
-                                true,
-                                e
-                        )
+                logger.error("Failed to retrieve messages by offsets", e);
+                throw new ProcessingException(
+                        "Failed to retrieve messages",
+                        ErrorCode.PROCESSING_FAILED.getCode(),
+                        true,
+                        e
+                );
+            }
+
+            // Verify we found all requested messages
+            if (messages.size() != offsets.size()) {
+                logger.warn("Not all requested messages were found. Requested: {}, Found: {}",
+                        offsets.size(), messages.size());
+            }
+
+            return messages;
+        }, executor);
+    }
+
+    @Override
+    public CompletableFuture<Void> updateMessageStatus(List<Long> offsets, MessageState messageState, String consumerId) {
+        return CompletableFuture.runAsync(() -> {
+            if (offsets.isEmpty()) {
+                return; // No offsets to process
+            }
+
+            // Generate placeholders for IN clause
+            String placeholders = offsets.stream()
+                    .map(o -> "?")
+                    .collect(Collectors.joining(","));
+            String updateQuery = String.format(UPDATE_MSG_STATE, placeholders);
+
+            String processQuery=String.format(UPDATE_PROCESSING_RESULT,placeholders);
+
+            try (Connection conn = dataSource.getConnection()) {
+                conn.setAutoCommit(false);
+
+                try (PreparedStatement stmt = conn.prepareStatement(updateQuery);) {
+                    PreparedStatement statement=conn.prepareStatement(processQuery);
+                    // Set the state parameter
+                    stmt.setString(1, messageState.name());
+                    statement.setBoolean(1, messageState == MessageState.DELIVERED);
+                    // Set the offset parameters
+                    for (int i = 0; i < offsets.size(); i++) {
+                        stmt.setLong(i + 2, offsets.get(i)); // Start from index 2 since index 1 is the state
+                        statement.setLong(i + 2, offsets.get(i));
+                    }
+
+                    // Execute the update
+                    stmt.executeUpdate();
+                    statement.executeUpdate();
+
+                    // Commit the transaction
+                    conn.commit();
+                } catch (SQLException e) {
+                    conn.rollback();
+                    logger.error("Failed to update message states with IN clause", e);
+                    throw new ProcessingException(
+                            "Failed to update processing results",
+                            ErrorCode.PROCESSING_FAILED.getCode(),
+                            true,
+                            e
+                    );
+                }
+            } catch (SQLException e) {
+                logger.error("Database connection error while updating message states", e);
+                throw new ProcessingException(
+                        "Database connection error",
+                        ErrorCode.PROCESSING_FAILED.getCode(),
+                        true,
+                        e
                 );
             }
         }, executor);
     }
+
+
 }

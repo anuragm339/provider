@@ -195,6 +195,9 @@ public class DeadLetterQueueService {
         try {
             String jsonContent = Files.readString(dlqStoragePath);
 
+            if(jsonContent==null || jsonContent.isEmpty()) {
+                return;
+            }
             // Read messages from file
             List<DeadLetterMessage> loadedMessages = objectMapper.readValue(
                     jsonContent,

@@ -1,31 +1,43 @@
 package com.example.messaging.transport.rsocket.handler;
 
+import com.example.messaging.core.pipeline.impl.MessageDispatchOrchestrator;
+import com.example.messaging.core.pipeline.service.MessageProcessor;
+import com.example.messaging.storage.service.MessageStore;
 import com.example.messaging.transport.rsocket.consumer.ConsumerConnection;
 import com.example.messaging.transport.rsocket.consumer.ConsumerState;
 import com.example.messaging.transport.rsocket.model.ConsumerRequest;
 import com.example.messaging.transport.rsocket.model.ReplayRequest;
 import com.example.messaging.transport.rsocket.protocol.MessageCodec;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micronaut.context.ApplicationContext;
 import io.rsocket.RSocket;
 import io.rsocket.Payload;
 import io.rsocket.util.DefaultPayload;
 import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
+
+@Singleton
 public class ConsumerRequestHandler implements RSocket {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerRequestHandler.class);
 
     private final ConsumerConnection connection;
     private final MessageCodec messageCodec;
-    private final ReplayRequestHandler replayRequestHandler;
+    private final MessageDispatchOrchestrator messageDispatchOrchestrator;
 
-    public ConsumerRequestHandler(ConsumerConnection connection, MessageCodec messageCodec, ReplayRequestHandler replayRequestHandler) {
+    public ConsumerRequestHandler(ConsumerConnection connection, MessageCodec messageCodec, MessageDispatchOrchestrator messageDispatchOrchestrator) {
         this.connection = connection;
         this.messageCodec = messageCodec;
-        this.replayRequestHandler = replayRequestHandler;
+        this.messageDispatchOrchestrator = messageDispatchOrchestrator;
     }
 
     @Override
@@ -34,7 +46,31 @@ public class ConsumerRequestHandler implements RSocket {
                 .doOnNext(payload -> {
                     try {
                         String data = payload.getDataUtf8();
-                        logger.debug("Received ack in provider: {}", data);
+                        JsonNode root;
+                        String type;
+                        try {
+                            root = new ObjectMapper().readTree(data);
+                            type = root.get("type").asText();
+                        } catch (JsonProcessingException e) {
+                            throw new RuntimeException(e);
+                        }
+                        if ("BATCH_ACK".equals(type)) {
+                            String batchId = root.get("batchId").asText();
+                            String consumerId = root.get("consumerId").asText();
+
+                            JsonNode offsetsNode = root.get("messageOffsets");
+                            List<Long> ackOffsetList=new ArrayList<>();
+                            if (offsetsNode.isArray()) {
+                                offsetsNode.forEach(offset -> ackOffsetList.add(offset.asLong()));
+                                messageDispatchOrchestrator.handleBatchAcknowledgment(
+                                        batchId,
+                                        ackOffsetList,
+                                        consumerId
+                                );
+                            }
+                        }
+
+                        logger.info("Received ack in provider: {}", data);
                         // Process acknowledgment
                     } finally {
                         payload.release();

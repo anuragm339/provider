@@ -60,7 +60,7 @@ public class PerformanceController {
                                 .msgOffset(messageCounter.incrementAndGet())
                                 .type(consumerType)
                                 .createdUtc(Instant.now())
-                                .data(testData.clone())
+                                .data(testData)
                                 .build();
 
                         typeCounters.get(consumerType).incrementAndGet();

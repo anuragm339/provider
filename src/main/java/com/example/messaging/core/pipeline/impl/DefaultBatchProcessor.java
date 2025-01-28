@@ -1,5 +1,6 @@
 package com.example.messaging.core.pipeline.impl;
 
+import com.example.messaging.core.pipeline.model.BatchStatus;
 import com.example.messaging.core.pipeline.service.BatchProcessor;
 import com.example.messaging.core.pipeline.service.MessageProcessor;
 import com.example.messaging.core.pipeline.service.ParallelProcessingConfig;
@@ -66,7 +67,7 @@ public class DefaultBatchProcessor implements BatchProcessor {
 //            errorHandler.validateBatchState(batch);
             errorHandler.validateBatchSequence(batch);
 
-            batchStatuses.put(batch.getBatchId(), new BatchStatus(batch.getBatchSize()));
+            batchStatuses.put(batch.getBatchId(), new BatchStatus("","",batch.getBatchSize(),null,0));
 
             return processBatchWithRetry(batch)
                     .whenComplete((results, error) -> {
@@ -227,23 +228,7 @@ public class DefaultBatchProcessor implements BatchProcessor {
         }
     }
 
-    private static class BatchStatus {
-        private final int totalMessages;
-        private final AtomicInteger processedCount;
 
-        BatchStatus(int totalMessages) {
-            this.totalMessages = totalMessages;
-            this.processedCount = new AtomicInteger(0);
-        }
-
-        void incrementProcessed() {
-            processedCount.incrementAndGet();
-        }
-
-        boolean isComplete() {
-            return processedCount.get() == totalMessages;
-        }
-    }
 
     // Cleanup method for shutdown
     public void shutdown() {
