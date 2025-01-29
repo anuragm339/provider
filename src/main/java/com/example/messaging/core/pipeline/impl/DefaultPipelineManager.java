@@ -8,15 +8,18 @@ import com.example.messaging.models.Message;
 import com.example.messaging.exceptions.ProcessingException;
 import com.example.messaging.exceptions.ErrorCode;
 
+import jakarta.inject.Named;
 import jakarta.inject.Singleton;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import org.checkerframework.checker.units.qual.N;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -28,6 +31,7 @@ public class DefaultPipelineManager implements PipelineManager {
     private final MessageStore messageStore;
     private final MessageDispatchOrchestrator messageDispatchOrchestrator;
     private final DeadLetterQueueService deadLetterQueueService;
+    private final ExecutorService pipelineWorker;
 
     // Track pipeline status
     private final AtomicReference<PipelineStatus> status =
@@ -37,12 +41,14 @@ public class DefaultPipelineManager implements PipelineManager {
             MessageProcessor messageProcessor,
             MessageStore messageStore,
             MessageDispatchOrchestrator messageDispatchOrchestrator,
-            DeadLetterQueueService deadLetterQueueService
+            DeadLetterQueueService deadLetterQueueService,
+            @Named("pipelineWorker") ExecutorService pipelineWorker
     ) {
         this.messageProcessor = messageProcessor;
         this.messageStore = messageStore;
         this.messageDispatchOrchestrator = messageDispatchOrchestrator;
         this.deadLetterQueueService = deadLetterQueueService;
+        this.pipelineWorker = pipelineWorker;
     }
 
     @PostConstruct
@@ -80,16 +86,17 @@ public class DefaultPipelineManager implements PipelineManager {
 
                 throw new CompletionException(e);
             }
-        });
+        },pipelineWorker);
     }
 
     @Override
     public CompletableFuture<List<Long>> submitBatch(List<Message> messages) {
-        return CompletableFuture.supplyAsync(() ->
-                messages.stream()
-                        .map(this::submitMessage)
-                        .map(CompletableFuture::join)
-                        .collect(Collectors.toList())
+        return CompletableFuture.supplyAsync(() -> {
+                    return messages.stream()
+                            .map(this::submitMessage)
+                            .map(CompletableFuture::join)
+                            .collect(Collectors.toList());
+                },pipelineWorker
         );
     }
 

@@ -28,6 +28,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Base64;
@@ -41,31 +42,25 @@ public class DefaultMessageProcessor implements MessageProcessor {
 
     private final MessageValidator validator;
     private final PipelineConfig config;
-    private final Executor executor;
+    private final ExecutorService messageProcessorWorker;
     private final MessageStore messageStore;
     private final AtomicInteger activeProcessingCount;
     private final AtomicBoolean operational;
     private final MessagePublisher messagePublisher;
-    private final ConsumerRegistry consumerRegistry;
-    private final BidirectionalDuplicateHandler bidirectionalDuplicateHandler;
 
     public DefaultMessageProcessor(
             MessageValidator validator,
             PipelineConfig config,
-            Executor executor,
             MessageStore messageStore,
             MessagePublisher messagePublisher,
-            ConsumerRegistry consumerRegistry,
-            BidirectionalDuplicateHandler bidirectionalDuplicateHandler) {
+            @Named("messageProcessorWorker") ExecutorService messageProcessorWorker ) {
         this.validator = validator;
         this.config = config;
-        this.executor = executor;
+        this.messageProcessorWorker = messageProcessorWorker;
         this.messageStore = messageStore;
         this.activeProcessingCount = new AtomicInteger(0);
         this.operational = new AtomicBoolean(true);
         this.messagePublisher = messagePublisher;
-        this.consumerRegistry=consumerRegistry;
-        this.bidirectionalDuplicateHandler=bidirectionalDuplicateHandler;
     }
 
 
@@ -203,7 +198,7 @@ public class DefaultMessageProcessor implements MessageProcessor {
                 activeProcessingCount.decrementAndGet();
                 logProcessingComplete(message, result);
             }
-        }, executor);
+        }, messageProcessorWorker);
     }
 
     private void storeResult(ProcessingResult result) {

@@ -36,7 +36,6 @@ public class BidirectionalDuplicateHandler implements AutoCloseable {
     private final ConcurrentMap<String, AtomicLong> keyVersionMap;
     private final AtomicLong queuedForDeletionCount;
     private final MessageStore messageStore;
-    private final ExecutorService executorService;
     private final WriteOptions writeOptions;
     private final ReadOptions readOptions;
     private final AtomicBoolean isRunning;
@@ -50,10 +49,8 @@ public class BidirectionalDuplicateHandler implements AutoCloseable {
     public BidirectionalDuplicateHandler(
             RocksConfigFactory configFactory,
             RocksProperties properties,
-            MessageStore messageStore,
-            ExecutorService executorService) {
+            MessageStore messageStore) {
         this.messageStore = messageStore;
-        this.executorService = executorService;
         this.deletionQueue = new LinkedBlockingQueue<>(MAX_QUEUE_SIZE);
         this.keyVersionMap = new ConcurrentHashMap<>();
         this.queuedForDeletionCount = new AtomicLong(0);

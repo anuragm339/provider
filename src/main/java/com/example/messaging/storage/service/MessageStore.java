@@ -74,7 +74,7 @@ public interface MessageStore {
 
     CompletableFuture<Void> storeProcessingResultBatch(List<ProcessingResult> result);
 
-    List<Message> getMessagesAfterOffset(long offset,String type);
+    CompletableFuture<List<Message>> getMessagesAfterOffset(long offset,String type);
 
     /**
      * Retrieve messages by their offsets

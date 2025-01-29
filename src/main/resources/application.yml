@@ -20,7 +20,7 @@ micronaut:
       maxPoolSize: 4
 
 sqlite:
-  db-path: /Users/anuragmishra/Desktop/workspace/messaging/aqeduct-provider/message_store.db
+  db-path: /Users/IN45626365/Desktop/Workspace/CustomProjects/provider/message_store.db
   maxMessages: 1000000
   maxStorageSize: 1073741824  # 1GB
   retentionPeriodMs: 86400000 # 24 hours
@@ -49,6 +49,10 @@ pipeline:
   manager:
     queueCapacity: 10000
     threadPoolSize: 10
+    maxpollSize: 10
+    corePoolSize: 4
+    keepAliveTime: 1000
+
 
 parallel-processing:
   parallelThreads: 4
@@ -60,7 +64,7 @@ parallel-processing:
   maintainOrderWithinBatch: true
 rocks:
   storage:
-    db-path: /Users/anuragmishra/Desktop/workspace/messaging/aqeduct-provider/rocksdb
+    db-path: /Users/IN45626365/Desktop/Workspace/CustomProjects/provider/rocksdb
     max-storage-size: ${ROCKS_MAX_STORAGE:1073741824}  # 1GB
     compression: true
     compression-type: LZ4
@@ -97,12 +101,17 @@ compression:
 
 message:
   store:
-    batch-size: 10
+    batch-size: 20
   dlq:
     storage:
-      path: /Users/anuragmishra/Desktop/workspace/messaging/aqeduct-provider
+      path: /Users/IN45626365/Desktop/Workspace/CustomProjects/provider
   offset:
     storage:
-      path: /Users/anuragmishra/Desktop/workspace/messaging/aqeduct-provider
+      path: /Users/IN45626365/Desktop/Workspace/CustomProjects/provider
   dispatch:
     polling-interval-ms: 100
+dispatch:
+  schedule:
+    processInterval: 1000
+    cleanupInterval: 30000
+    batchTimeoutMs: 30000

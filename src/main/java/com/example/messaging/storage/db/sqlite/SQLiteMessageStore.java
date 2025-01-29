@@ -16,6 +16,7 @@ import com.example.messaging.exceptions.ProcessingException;
 import com.example.messaging.exceptions.ErrorCode;
 
 import io.micronaut.context.annotation.Value;
+import jakarta.inject.Named;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +27,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
 @Singleton
@@ -59,23 +61,23 @@ public class SQLiteMessageStore implements MessageStore {
 
     private final DataSource dataSource;
     private final SQLiteConfig config;
-    private final Executor executor;
+    private final ExecutorService messageStoreWorker;
     private final SQLiteTableManager tableManager;
     private final DatabaseHealthManager healthManager;
     private final DatabaseMaintenanceManager maintenanceManager;
     private final MessageCompression compression;
     private final MessageStatistics statistics;
 
-    public SQLiteMessageStore(DataSource dataSource, SQLiteConfig config, Executor executor,MessageCompression messageCompression) {
+
+    public SQLiteMessageStore(DataSource dataSource, SQLiteConfig config, @Named("messageStoreWorker") ExecutorService messageStoreWorker, MessageCompression messageCompression) {
         this.dataSource = dataSource;
         this.config = config;
-        this.executor = executor;
+        this.messageStoreWorker = messageStoreWorker;
         this.tableManager = new SQLiteTableManager(dataSource);
         this.healthManager = new DatabaseHealthManager(dataSource, config);
         this.maintenanceManager = new DatabaseMaintenanceManager(dataSource, config);
         this.compression = messageCompression;
         this.statistics = new MessageStatistics(dataSource);
-
         initialize();
     }
 
@@ -130,7 +132,7 @@ public class SQLiteMessageStore implements MessageStore {
                         e
                 );
             }
-        }, executor);
+        }, messageStoreWorker);
     }
 
     @Override
@@ -197,7 +199,7 @@ public class SQLiteMessageStore implements MessageStore {
                 );
             }
             return offsets;
-        }, executor);
+        }, messageStoreWorker);
     }
 
     @Override
@@ -241,7 +243,7 @@ public class SQLiteMessageStore implements MessageStore {
                         e
                 );
             }
-        }, executor);
+        }, messageStoreWorker);
     }
 
     @Override
@@ -265,7 +267,7 @@ public class SQLiteMessageStore implements MessageStore {
                         e
                 );
             }
-        }, executor);
+        }, messageStoreWorker);
     }
 
     @Override
@@ -297,7 +299,7 @@ public class SQLiteMessageStore implements MessageStore {
                         e
                 );
             }
-        }, executor);
+        }, messageStoreWorker);
     }
 
     @Override
@@ -352,7 +354,7 @@ public class SQLiteMessageStore implements MessageStore {
                         e
                 );
             }
-        }, executor);
+        }, messageStoreWorker);
     }
 
     @Override
@@ -373,7 +375,7 @@ public class SQLiteMessageStore implements MessageStore {
                         e
                 );
             }
-        }, executor);
+        }, messageStoreWorker);
     }
 
     @Override
@@ -412,7 +414,7 @@ public class SQLiteMessageStore implements MessageStore {
                         e
                 );
             }
-        }, executor);
+        }, messageStoreWorker);
     }
 
     private int deleteFromProcessingResults(Connection conn, Set<Long> offsets)
@@ -504,46 +506,49 @@ public class SQLiteMessageStore implements MessageStore {
                         e
                 );
             }
-        }, executor);
+        }, messageStoreWorker);
     }
 
     @Override
-    public List<Message> getMessagesAfterOffset(long offset,String type) {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(SELECT_MESSAGES_AFTER_OFFSET)) {
+    public CompletableFuture<List<Message>> getMessagesAfterOffset(long offset, String type) {
+        return CompletableFuture.supplyAsync(() -> { // Use supplyAsync to return a value
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(SELECT_MESSAGES_AFTER_OFFSET)) {
 
-            stmt.setLong(1, offset);
-            stmt.setString(2,type);
-            stmt.setInt(3, defaultBatchSize);
+                stmt.setLong(1, offset);
+                stmt.setString(2, type);
+                stmt.setInt(3, defaultBatchSize);
 
-            List<Message> messages = new ArrayList<>();
+                List<Message> messages = new ArrayList<>();
 
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    Message message = Message.builder()
-                            .msgOffset(rs.getLong("msg_offset"))
-                            .type(rs.getString("type"))
-                            .createdUtc(rs.getTimestamp("created_utc").toInstant())
-                            .data(rs.getBytes("data"))
-                            .build();
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        Message message = Message.builder()
+                                .msgOffset(rs.getLong("msg_offset"))
+                                .type(rs.getString("type"))
+                                .createdUtc(rs.getTimestamp("created_utc").toInstant())
+                                .data(rs.getBytes("data"))
+                                .build();
 
-                    messages.add(message);
+                        messages.add(message);
+                    }
                 }
-            }
 
-            return messages;
-        } catch (SQLException e) {
-            logger.error("Failed to retrieve messages after offset", e);
-            throw new CompletionException(
-                    new ProcessingException(
-                            "Failed to retrieve messages",
-                            ErrorCode.PROCESSING_FAILED.getCode(),
-                            true,
-                            e
-                    )
-            );
-        }
+                return messages; // Return the list of messages
+            } catch (SQLException e) {
+                logger.error("Failed to retrieve messages after offset", e);
+                throw new CompletionException(
+                        new ProcessingException(
+                                "Failed to retrieve messages",
+                                ErrorCode.PROCESSING_FAILED.getCode(),
+                                true,
+                                e
+                        )
+                );
+            }
+        }, messageStoreWorker); // Use messageStoreWorker executor
     }
+
     @Override
     public CompletableFuture<List<Message>> getMessagesByOffsets(List<Long> offsets) {
         return CompletableFuture.supplyAsync(() -> {
@@ -594,7 +599,7 @@ public class SQLiteMessageStore implements MessageStore {
             }
 
             return messages;
-        }, executor);
+        }, messageStoreWorker);
     }
 
     @Override
@@ -651,7 +656,7 @@ public class SQLiteMessageStore implements MessageStore {
                         e
                 );
             }
-        }, executor);
+        }, messageStoreWorker);
     }
 
 

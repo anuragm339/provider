@@ -9,6 +9,7 @@ import com.example.messaging.storage.db.sqlite.ConsumerOffsetTracker;
 import com.example.messaging.storage.service.MessageStore;
 import com.example.messaging.transport.rsocket.consumer.ConsumerRegistry;
 import com.example.messaging.transport.rsocket.handler.MessagePublisher;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import io.micronaut.context.annotation.Context;
 import io.micronaut.context.annotation.Value;
 import io.micronaut.scheduling.annotation.Scheduled;
@@ -19,10 +20,7 @@ import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -49,7 +47,7 @@ public class MessageDispatchOrchestrator {
     private final Map<String, MessageDeliveryContext> deliveryContexts = new ConcurrentHashMap<>();
 
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final ScheduledExecutorService scheduler;
     @Value("${message.store.batch-size:16}")
     private int defaultBatchSize;
 
@@ -63,6 +61,20 @@ public class MessageDispatchOrchestrator {
         this.offsetTracker = offsetTracker;
         this.messagePublisher = messagePublisher;
         this.performanceTracker=performanceTracker;
+        ThreadFactory threadFactory = new ThreadFactoryBuilder()
+                .setNameFormat("msg-dispatch-scheduler-%d")
+                .build();
+        // Set fixed core pool size to prevent thread growth
+        this.scheduler = new ScheduledThreadPoolExecutor(2, threadFactory,
+                new ThreadPoolExecutor.CallerRunsPolicy()){
+            @Override
+            protected void beforeExecute(Thread t, Runnable r) {
+                logger.debug("Executing task on thread: {}", t.getName());
+            }
+        };
+        // Prevent core threads timeout
+        ((ScheduledThreadPoolExecutor) scheduler).setRemoveOnCancelPolicy(true);
+        ((ScheduledThreadPoolExecutor) scheduler).setMaximumPoolSize(2);
     }
 
     public void dispatchToGroup(String groupId) {
@@ -102,7 +114,7 @@ public class MessageDispatchOrchestrator {
         long lastProcessedOffset = offsetTracker.getLastProcessedOffset(groupId);
 
         try {
-            List<Message> messagesAfterOffset = messageStore.getMessagesAfterOffset(lastProcessedOffset, groupId);
+            List<Message> messagesAfterOffset = messageStore.getMessagesAfterOffset(lastProcessedOffset, groupId).join();
             logger.info("Found {} unprocessed messages for group {}", messagesAfterOffset.size(), groupId);
             return messagesAfterOffset;
         } catch (Exception e) {
