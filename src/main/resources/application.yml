@@ -90,6 +90,8 @@ compression:
     size: 32768
 
 message:
+  store:
+    batch-size: 10
   dlq:
     storage:
       path: /Users/anuragmishra/Desktop/workspace/messaging/aqeduct-provider

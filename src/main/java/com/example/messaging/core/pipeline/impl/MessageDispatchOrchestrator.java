@@ -45,6 +45,8 @@ public class MessageDispatchOrchestrator {
 
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    @Value("${message.store.batch-size:16}")
+    private int defaultBatchSize;
 
     public MessageDispatchOrchestrator(
             MessageStore messageStore,
@@ -104,12 +106,11 @@ public class MessageDispatchOrchestrator {
                 messages.stream()
                         .map(Message::getMsgOffset)
                         .collect(Collectors.toList()),
-                lastSuccessfulOffset
+                lastSuccessfulOffset,defaultBatchSize
         );
         batchStatuses.put(batchId, batchStatus);
 
-        logger.info("Created new batch {} for group {} with {} messages",
-                batchId, groupId, messages.size());
+        //logger.info("Created new batch {} for group {} with {} messages", batchId, groupId, messages.size());
 
         // Schedule batch timeout check
         scheduler.schedule(
@@ -123,8 +124,7 @@ public class MessageDispatchOrchestrator {
                     logger.debug("Published batch {} for group {}", batchId, groupId);
                 })
                 .doOnError(error -> {
-                    logger.error("Failed to publish batch {} for group {}: {}",
-                            batchId, groupId, error.getMessage());
+                    logger.error("Failed to publish batch {} for group {}: {}", batchId, groupId, error.getMessage());
                     cleanupBatch(batchId);
                 })
                 .block();
@@ -169,7 +169,7 @@ public class MessageDispatchOrchestrator {
                         .get(10, TimeUnit.SECONDS);
 
                 status.incrementRetryCount();
-                logger.info("Retrying batch {} (attempt {})", status.getBatchId(), status.getRetryCount());
+                //logger.info("Retrying batch {} (attempt {})", status.getBatchId(), status.getRetryCount());
 
                 dispatchMessageBatch(status.getGroupId(), messages);
             } catch (Exception e) {
@@ -181,13 +181,10 @@ public class MessageDispatchOrchestrator {
     public Mono<Void> handleBatchAcknowledgment(String batchId, List<Long> offsets, String consumerId) {
         BatchStatus status = batchStatuses.get(batchId);
         if (status != null) {
-            //status.acknowledgeMessage(offset, consumerId);
-            messageStore.updateMessageStatus(offsets, MessageState.DELIVERED, consumerId);
-            if (status.isComplete()) {
-                logger.info("Batch {} completed successfully", batchId);
-                updateConsumerOffsets(status);
-                cleanupBatch(batchId);
-            }
+            messageStore.updateMessageStatus(offsets, MessageState.DELIVERED, consumerId).join();
+            status.acknowledgeMessage(offsets.get(offsets.size()-1), consumerId);
+            updateConsumerOffsets(status);
+            cleanupBatch(batchId);
         }
         return Mono.empty();
     }
@@ -201,11 +198,9 @@ public class MessageDispatchOrchestrator {
                         status.getGroupId(),
                         maxOffset
                 );
-                logger.info("Updated consumer offset for group {} to {}",
-                        status.getGroupId(), maxOffset);
+                logger.info("Updated consumer offset for group {} to {}", status.getGroupId(), maxOffset);
             } else {
-                logger.warn("Batch {} has non-contiguous offsets, not updating consumer offset",
-                        status.getBatchId());
+                logger.warn("Batch {} has non-contiguous offsets, not updating consumer offset", status.getBatchId());
             }
         } else {
             offsetTracker.updateConsumerOffset(

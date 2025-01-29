@@ -19,19 +19,20 @@ public class BatchStatus {
     public Map<Long, MessageStatus> getMessageStatuses() {
         return Collections.unmodifiableMap(messageStatuses);
     }
-    private final AtomicInteger acknowledgedCount = new AtomicInteger(0);
+    private final AtomicInteger acknowledgedCount ;
     private volatile BatchState state = BatchState.PENDING;
     private final Instant createdAt;
     private final long previousSuccessfulBatchOffset;  // Track last successful batch offset
     private Instant completedAt;
     private int retryCount = 0;
 
-    public BatchStatus(String batchId, String groupId, int totalMessages, List<Long> messageOffsets, long previousSuccessfulBatchOffset) {
+    public BatchStatus(String batchId, String groupId, int totalMessages, List<Long> messageOffsets, long previousSuccessfulBatchOffset,int defaultBatchSize) {
         this.batchId = batchId;
         this.groupId = groupId;
         this.totalMessages = totalMessages;
         this.createdAt = Instant.now();
         this.previousSuccessfulBatchOffset = previousSuccessfulBatchOffset;
+        acknowledgedCount=new AtomicInteger(defaultBatchSize);
 
         // Initialize message statuses
         messageOffsets.forEach(offset ->
@@ -46,7 +47,7 @@ public class BatchStatus {
             status.setAckTime(Instant.now());
             status.setConsumerId(consumerId);
 
-            if (acknowledgedCount.incrementAndGet() == totalMessages) {
+            if (acknowledgedCount.get() == totalMessages) {
                 state = BatchState.COMPLETE;
                 completedAt = Instant.now();
             }

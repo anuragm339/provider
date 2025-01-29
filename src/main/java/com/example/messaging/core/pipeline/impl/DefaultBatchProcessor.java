@@ -10,6 +10,7 @@ import com.example.messaging.exceptions.ProcessingException;
 import com.example.messaging.exceptions.ErrorCode;
 import com.example.messaging.models.Message;
 
+import io.micronaut.context.annotation.Value;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +30,8 @@ public class DefaultBatchProcessor implements BatchProcessor {
     private final ExecutorService executorService;
     private final ConcurrentMap<String, BatchStatus> batchStatuses;
     private final BatchErrorHandler errorHandler;
+    @Value("${message.store.batch-size:16}")
+    private int defaultBatchSize;
 
     public DefaultBatchProcessor(
             MessageProcessor messageProcessor,
@@ -67,7 +70,7 @@ public class DefaultBatchProcessor implements BatchProcessor {
 //            errorHandler.validateBatchState(batch);
             errorHandler.validateBatchSequence(batch);
 
-            batchStatuses.put(batch.getBatchId(), new BatchStatus("","",batch.getBatchSize(),null,0));
+            batchStatuses.put(batch.getBatchId(), new BatchStatus("","",batch.getBatchSize(),null,0,defaultBatchSize));
 
             return processBatchWithRetry(batch)
                     .whenComplete((results, error) -> {

@@ -51,7 +51,7 @@ public class SQLiteMessageStore implements MessageStore {
 
     private static final String UPDATE_MSG_STATE = "UPDATE messages SET state = ? WHERE msg_offset IN (%s);";
 
-    @Value("${message.store.batch-size:10}")
+    @Value("${message.store.batch-size:16}")
     private int defaultBatchSize;
 
     private static final String SELECT_MESSAGES_AFTER_OFFSET =
