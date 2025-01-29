@@ -4,12 +4,14 @@ import com.example.messaging.core.pipeline.model.BatchStatus;
 import com.example.messaging.models.BatchMessage;
 import com.example.messaging.models.Message;
 import com.example.messaging.models.MessageState;
+import com.example.messaging.monitoring.metrics.ConsumerPerformanceTracker;
 import com.example.messaging.storage.db.sqlite.ConsumerOffsetTracker;
 import com.example.messaging.storage.service.MessageStore;
 import com.example.messaging.transport.rsocket.consumer.ConsumerRegistry;
 import com.example.messaging.transport.rsocket.handler.MessagePublisher;
 import io.micronaut.context.annotation.Context;
 import io.micronaut.context.annotation.Value;
+import io.micronaut.scheduling.annotation.Scheduled;
 import jakarta.annotation.PostConstruct;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
@@ -43,6 +45,9 @@ public class MessageDispatchOrchestrator {
     @Value("${message.dispatch.max-retries:3}")
     private int maxRetries;
 
+    private ConsumerPerformanceTracker performanceTracker;
+    private final Map<String, MessageDeliveryContext> deliveryContexts = new ConcurrentHashMap<>();
+
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     @Value("${message.store.batch-size:16}")
@@ -52,11 +57,12 @@ public class MessageDispatchOrchestrator {
             MessageStore messageStore,
             ConsumerRegistry consumerRegistry,
             ConsumerOffsetTracker offsetTracker,
-            MessagePublisher messagePublisher) {
+            MessagePublisher messagePublisher, ConsumerPerformanceTracker performanceTracker) {
         this.messageStore = messageStore;
         this.consumerRegistry = consumerRegistry;
         this.offsetTracker = offsetTracker;
         this.messagePublisher = messagePublisher;
+        this.performanceTracker=performanceTracker;
     }
 
     public void dispatchToGroup(String groupId) {
@@ -67,6 +73,18 @@ public class MessageDispatchOrchestrator {
 
         List<Message> unprocessedMessages = findUnprocessedMessagesForGroup(groupId);
         if (!unprocessedMessages.isEmpty()) {
+            // Calculate total size for metrics
+            long totalSize = unprocessedMessages.stream()
+                    .mapToLong(msg -> msg.getData().length)
+                    .sum();
+
+            // Store delivery context
+            deliveryContexts.put(groupId, new MessageDeliveryContext(
+                    System.currentTimeMillis(),
+                    totalSize,
+                    unprocessedMessages.size()
+            ));
+
             dispatchMessageBatch(groupId, unprocessedMessages);
         }
     }
@@ -181,6 +199,18 @@ public class MessageDispatchOrchestrator {
     public Mono<Void> handleBatchAcknowledgment(String batchId, List<Long> offsets, String consumerId) {
         BatchStatus status = batchStatuses.get(batchId);
         if (status != null) {
+            // Record delivery metrics
+            MessageDeliveryContext context = deliveryContexts.remove(status.getGroupId());
+            if (context != null) {
+                long deliveryTime = System.currentTimeMillis() - context.startTime;
+                performanceTracker.recordBatchSent(
+                        status.getGroupId(),
+                        context.messageCount,
+                        context.totalSize,
+                        deliveryTime
+                );
+            }
+
             messageStore.updateMessageStatus(offsets, MessageState.DELIVERED, consumerId).join();
             status.acknowledgeMessage(offsets.get(offsets.size()-1), consumerId);
             updateConsumerOffsets(status);
@@ -220,7 +250,23 @@ public class MessageDispatchOrchestrator {
                 .orElse(0L);
     }
 
+    private void handleDeliveryFailure(String groupId, String batchId, Throwable error) {
+        logger.error("Failed to deliver batch {} to group {}: {}",
+                batchId, groupId, error.getMessage());
+
+        // Remove delivery context and record failure
+        deliveryContexts.remove(groupId);
+        performanceTracker.recordFailedDelivery(groupId);
+
+        // Existing error handling logic...
+    }
+
     private void cleanupBatch(String batchId) {
+        BatchStatus status = batchStatuses.get(batchId);
+        if (status != null) {
+            // Remove any lingering delivery context
+            deliveryContexts.remove(status.getGroupId());
+        }
         batchStatuses.remove(batchId);
         logger.debug("Cleaned up batch {}", batchId);
     }
@@ -309,6 +355,39 @@ public class MessageDispatchOrchestrator {
         metrics.put("expiredBatches", batchStatuses.values().stream()
                 .filter(s -> s.isExpired(batchTimeoutMs))
                 .count());
+        return metrics;
+    }
+
+    private static class MessageDeliveryContext {
+        final long startTime;
+        final long totalSize;
+        final int messageCount;
+
+        MessageDeliveryContext(long startTime, long totalSize, int messageCount) {
+            this.startTime = startTime;
+            this.totalSize = totalSize;
+            this.messageCount = messageCount;
+        }
+    }
+
+    @Scheduled(fixedDelay = "5m")
+    public void cleanupStaleDeliveryContexts() {
+        long staleThreshold = System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(5);
+        deliveryContexts.entrySet().removeIf(entry -> {
+            if (entry.getValue().startTime < staleThreshold) {
+                performanceTracker.recordFailedDelivery(entry.getKey());
+                return true;
+            }
+            return false;
+        });
+    }
+
+    // Add method to get current dispatch metrics
+    public Map<String, Object> getDispatchMetrics() {
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("activeDeliveries", deliveryContexts.size());
+        metrics.put("pendingBatches", batchStatuses.size());
+        metrics.put("performanceMetrics", performanceTracker.getGlobalSnapshot());
         return metrics;
     }
 }
