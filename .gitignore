@@ -4,6 +4,7 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 .idea/
+.idea
 rocksdb
 message_store.db
 message_store.db-shm
