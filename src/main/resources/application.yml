@@ -3,6 +3,12 @@ micronaut:
     name: message-pipeline
   server:
     port: 8080
+    cors:
+      enabled: true
+      configurations:
+        ui:
+          allowed-origins:
+            - http://localhost:63342
   executors:
     messageProcessor:
       type: fixed

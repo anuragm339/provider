@@ -129,8 +129,7 @@
 <body>
 <div class="input-section">
     <h2>Message Pipeline Metrics Dashboard</h2>
-    <textarea id="jsonInput" placeholder="Paste your JSON metrics data here"></textarea>
-    <button onclick="updateMetrics()">Update Metrics</button>
+    <button onclick="fetchMetrics()">Update Metrics</button>
 </div>
 
 <div id="globalMetrics" class="metrics-grid">
@@ -168,27 +167,39 @@
         return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
     }
 
-    function updateMetrics() {
+    async function fetchMetrics() {
         try {
-            const jsonString = document.getElementById('jsonInput').value;
-            const data = JSON.parse(jsonString);
+            const response = await fetch("http://localhost:8080/api/metrics/performance");
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            const data = await response.json();
+            const stringify = JSON.stringify(data);
+            updateMetrics(stringify);
+        } catch (error) {
+            console.error("Failed to fetch metrics:", error);
+        }
+    }
 
+    function updateMetrics(data1 ) {
+        try {
+            const data = JSON.parse(data1);
             // Update global metrics
             const globalMetricsHtml = `
                     <div class="metric-card">
                         <div class="metric-title">Total Messages</div>
-                        <div class="metric-value">${formatNumber(data.global.totalMessagesSent)}</div>
-                        <div class="metric-subtitle">${formatNumber(data.global.globalMessagesPerSecond)} msg/s</div>
+                        <div class="metric-value">${formatNumber(data.global?.totalMessagesSent ?? 0)}</div>
+                        <div class="metric-subtitle">${formatNumber(data.global?.globalMessagesPerSecond ?? 0)} msg/s</div>
                     </div>
                     <div class="metric-card">
                         <div class="metric-title">Total Batches</div>
-                        <div class="metric-value">${formatNumber(data.global.totalBatchesSent)}</div>
+                        <div class="metric-value">${formatNumber(data.global?.totalBatchesSent?? 0)}</div>
                         <div class="metric-subtitle">Processed</div>
                     </div>
                     <div class="metric-card">
                         <div class="metric-title">Data Throughput</div>
-                        <div class="metric-value">${formatBytes(data.global.globalThroughputBytesPerSecond)}/s</div>
-                        <div class="metric-subtitle">Total: ${formatBytes(data.global.totalDataSent)}</div>
+                        <div class="metric-value">${formatBytes(data.global?.globalThroughputBytesPerSecond?? 0)}/s</div>
+                        <div class="metric-subtitle">Total: ${formatBytes(data?.global?.totalDataSent?? 0)}</div>
                     </div>
                     <div class="metric-card">
                         <div class="metric-title">Active Consumers</div>
