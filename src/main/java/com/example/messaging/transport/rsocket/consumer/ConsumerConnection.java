@@ -71,12 +71,23 @@ public class ConsumerConnection {
         return !rSocket.isDisposed();
     }
 
-    public void disconnect() {
-        logger.debug("Disconnecting consumer {}", metadata.getConsumerId());
-        rSocket.dispose();
-    }
 
     public Mono<Void> onClose() {
         return rSocket.onClose();
+    }
+
+    public void disconnect() {
+        try {
+            if (rSocket != null && !rSocket.isDisposed()) {
+                rSocket.dispose();
+            }
+        } catch (Exception e) {
+            logger.error("Error during disconnect", e);
+        } finally {
+            // Ensure cleanup of any pending resources
+            if (messageCodec != null) {
+               // messageCodec.dispose();
+            }
+        }
     }
 }

@@ -78,6 +78,11 @@ public class MessageDispatchOrchestrator {
     }
 
     public void dispatchToGroup(String groupId) {
+        if (!consumerRegistry.hasActiveConsumers(groupId)) {
+            logger.debug("No active consumers for group {}", groupId);
+            return;
+        }
+
         if (hasPendingBatch(groupId)) {
             logger.debug("Skipping dispatch for group {} as it has pending batch", groupId);
             return;
@@ -127,17 +132,9 @@ public class MessageDispatchOrchestrator {
         String batchId = generateBatchId(groupId);
         long lastSuccessfulOffset = offsetTracker.getLastProcessedOffset(groupId);
         BatchMessage batchMessage = new BatchMessage(batchId, (long) messages.size(), messages, groupId);
-
+        List<Long> collect = messages.stream().map(Message::getMsgOffset).collect(Collectors.toList());
         // Create and store batch status before publishing
-        BatchStatus batchStatus = new BatchStatus(
-                batchId,
-                groupId,
-                messages.size(),
-                messages.stream()
-                        .map(Message::getMsgOffset)
-                        .collect(Collectors.toList()),
-                lastSuccessfulOffset,defaultBatchSize
-        );
+        BatchStatus batchStatus = new BatchStatus(batchId, groupId, messages.size(), collect, lastSuccessfulOffset,defaultBatchSize);
         batchStatuses.put(batchId, batchStatus);
 
         //logger.info("Created new batch {} for group {} with {} messages", batchId, groupId, messages.size());
@@ -149,6 +146,7 @@ public class MessageDispatchOrchestrator {
                 TimeUnit.MILLISECONDS
         );
 
+        messageStore.updateMessageStatus(collect, MessageState.SENT, groupId).join();
         messagePublisher.publishBatchMessage(batchMessage, groupId)
                 .doOnSuccess(__ -> {
                     logger.debug("Published batch {} for group {}", batchId, groupId);
@@ -176,15 +174,20 @@ public class MessageDispatchOrchestrator {
     }
 
     private void handleBatchTimeout(BatchStatus status) {
+        if (!consumerRegistry.hasActiveConsumers(status.getGroupId())) {
+            logger.debug("No active consumers for group {}, skipping retry for batch {}",
+                    status.getGroupId(), status.getBatchId());
+            cleanupBatch(status.getBatchId());
+            return;
+        }
+
         if (status.getRetryCount() >= maxRetries) {
             logger.error("Batch {} exceeded max retries. Moving to DLQ.", status.getBatchId());
-            // Reset offset to last successful batch on failure
             offsetTracker.updateConsumerOffset(
                     status.getGroupId(),
                     status.getGroupId(),
                     status.getPreviousSuccessfulBatchOffset()
             );
-
             cleanupBatch(status.getBatchId());
         } else {
             retryBatch(status);
@@ -193,18 +196,24 @@ public class MessageDispatchOrchestrator {
 
     private void retryBatch(BatchStatus status) {
         List<Long> unackedOffsets = status.getUnacknowledgedOffsets();
-        if (!unackedOffsets.isEmpty()) {
+        if (!unackedOffsets.isEmpty() && consumerRegistry.hasActiveConsumers(status.getGroupId())) {
             try {
                 List<Message> messages = messageStore.getMessagesByOffsets(unackedOffsets)
                         .get(10, TimeUnit.SECONDS);
 
                 status.incrementRetryCount();
-                //logger.info("Retrying batch {} (attempt {})", status.getBatchId(), status.getRetryCount());
+                logger.info("Retrying batch {} (attempt {}) for group {}",
+                        status.getBatchId(), status.getRetryCount(), status.getGroupId());
 
                 dispatchMessageBatch(status.getGroupId(), messages);
             } catch (Exception e) {
                 logger.error("Failed to retry batch {}", status.getBatchId(), e);
+                cleanupBatch(status.getBatchId());
             }
+        } else {
+            logger.debug("No unacked messages or active consumers for batch {}, cleaning up",
+                    status.getBatchId());
+            cleanupBatch(status.getBatchId());
         }
     }
 
@@ -336,7 +345,11 @@ public class MessageDispatchOrchestrator {
                     .collect(Collectors.toList());
 
             for (BatchStatus status : expiredBatches) {
-                handleBatchTimeout(status);
+                if (consumerRegistry.hasActiveConsumers(status.getGroupId())) {
+                    handleBatchTimeout(status);
+                } else {
+                    cleanupBatch(status.getBatchId());
+                }
             }
         } catch (Exception e) {
             logger.error("Error cleaning up expired batches", e);
@@ -401,5 +414,41 @@ public class MessageDispatchOrchestrator {
         metrics.put("pendingBatches", batchStatuses.size());
         metrics.put("performanceMetrics", performanceTracker.getGlobalSnapshot());
         return metrics;
+    }
+
+    public void cleanupConsumerResources(String consumerId, String groupId) {
+        // Clear any pending batches for this consumer
+        batchStatuses.entrySet().removeIf(entry -> {
+            BatchStatus status = entry.getValue();
+            if (status.getGroupId().equals(groupId)) {
+                cleanupBatch(entry.getKey());
+                return true;
+            }
+            return false;
+        });
+
+        // Clear delivery contexts
+        deliveryContexts.remove(groupId);
+
+        // Reset any in-progress message states
+        resetInProgressMessages(groupId);
+    }
+
+    private void resetInProgressMessages(String groupId) {
+        try {
+            // Get all IN_PROGRESS messages for this group
+            List<Message> inProgressMessages = messageStore.getMessagesInState(groupId, MessageState.SENT).join();
+
+            if (!inProgressMessages.isEmpty()) {
+                // Reset their states to PENDING
+                List<Long> offsets = inProgressMessages.stream().map(Message::getMsgOffset).collect(Collectors.toList());
+
+                messageStore.updateMessageStatus(offsets, MessageState.PENDING, null).join();
+
+                logger.info("Reset {} in-progress messages to pending for group {}", inProgressMessages.size(), groupId);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to reset in-progress messages for group {}: {}", groupId, e.getMessage(), e);
+        }
     }
 }

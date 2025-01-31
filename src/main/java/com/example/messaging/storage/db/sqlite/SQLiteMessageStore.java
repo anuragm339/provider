@@ -53,6 +53,8 @@ public class SQLiteMessageStore implements MessageStore {
 
     private static final String UPDATE_MSG_STATE = "UPDATE messages SET state = ? WHERE msg_offset IN (%s);";
 
+    private static final String SELECT_MESSAGES_BY_STATE = "SELECT msg_offset, msg_key, type, created_utc, data, state " + "FROM messages WHERE type = ? AND state = ?";
+
     @Value("${message.store.batch-size:16}")
     private int defaultBatchSize;
 
@@ -658,6 +660,46 @@ public class SQLiteMessageStore implements MessageStore {
             }
         }, messageStoreWorker);
     }
+    @Override
+    public CompletableFuture<List<Message>> getMessagesInState(String groupId, MessageState state) {
+        return CompletableFuture.supplyAsync(() -> {
+            List<Message> messages = new ArrayList<>();
 
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(SELECT_MESSAGES_BY_STATE)) {
 
+                stmt.setString(1, groupId);
+                stmt.setString(2, state.name());
+
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        Message message = Message.builder()
+                                .msgOffset(rs.getLong("msg_offset"))
+                                .msgKey(rs.getString("msg_key"))
+                                .type(rs.getString("type"))
+                                .createdUtc(rs.getTimestamp("created_utc").toInstant())
+                                .data(rs.getBytes("data"))
+                                .state(MessageState.valueOf(rs.getString("state")))
+                                .build();
+
+                        messages.add(message);
+                    }
+                }
+
+                logger.debug("Found {} messages in state {} for group {}",
+                        messages.size(), state, groupId);
+
+                return messages;
+            } catch (SQLException e) {
+                logger.error("Failed to retrieve messages in state {} for group {}",
+                        state, groupId, e);
+                throw new ProcessingException(
+                        "Failed to retrieve messages by state",
+                        ErrorCode.PROCESSING_FAILED.getCode(),
+                        true,
+                        e
+                );
+            }
+        }, messageStoreWorker);
+    }
 }

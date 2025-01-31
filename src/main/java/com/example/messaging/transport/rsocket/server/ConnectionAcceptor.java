@@ -23,11 +23,13 @@ import reactor.core.publisher.Mono;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Map;
 
 @Singleton
 public class ConnectionAcceptor implements SocketAcceptor {
     private static final Logger logger = LoggerFactory.getLogger(ConnectionAcceptor.class);
+    private static final int PAYLOAD_SIZE_LIMIT = 1024 * 1024*10; // 1MB
 
     private final ConsumerRegistry consumerRegistry;
     private final MessageCodec messageCodec;
@@ -50,47 +52,52 @@ public class ConnectionAcceptor implements SocketAcceptor {
     @Override
     public Mono<RSocket> accept(ConnectionSetupPayload setup, RSocket sendingSocket) {
         return Mono.defer(() -> {
-            try {
-                ConsumerMetadata metadata = objectMapper.readValue(
-                        setup.getMetadataUtf8(),
-                        ConsumerMetadata.class
-                );
+                    try {
+                        // Check payload size
+                        if (setup.data().readableBytes() > PAYLOAD_SIZE_LIMIT) {
+                           return Mono.error(new ConnectionException("Payload size exceeds limit", ErrorCode.CONNECTION_FAILED.getCode()));
+                        }
 
-                logger.info("Accepting new connection from consumer: {}",
-                        metadata.getConsumerId());
+                        ConsumerMetadata metadata = objectMapper.readValue(
+                                setup.getMetadataUtf8(),
+                                ConsumerMetadata.class
+                        );
 
-                // Create consumer connection
-                ConsumerConnection connection = new ConsumerConnection(
-                        metadata,
-                        sendingSocket,
-                        messageCodec,messageDispatchOrchestrator
-                );
-
-                // Register consumer
-                consumerRegistry.registerConsumer(connection);
-
-                // Create handler using factory
-                ConsumerRequestHandler handler = handlerFactory.create(connection);
-
-                // Setup connection monitoring
-                connection.onClose()
-                        .doFinally(signalType -> {
-                            logger.info("Connection closed for consumer: {}",
-                                    metadata.getConsumerId());
+                        // Check if consumer already exists
+                        if (consumerRegistry.hasActiveConsumers(metadata.getConsumerId())) {
+                            // Cleanup old connection first
                             consumerRegistry.unregisterConsumer(metadata.getConsumerId());
-                        })
-                        .subscribe();
+                        }
 
-                return Mono.just(handler);
+                        ConsumerConnection connection = new ConsumerConnection(
+                                metadata,
+                                sendingSocket,
+                                messageCodec,
+                                messageDispatchOrchestrator
+                        );
 
-            } catch (Exception e) {
-                logger.error("Failed to establish connection", e);
-                return Mono.error(new ConnectionException(
-                        "Failed to establish connection",
-                        ErrorCode.CONNECTION_FAILED.getCode(),
-                        e
-                ));
-            }
-        });
+                        // Set connection timeout
+                        sendingSocket
+                                .onClose()
+                                .doFinally(__ -> {
+                                    messageDispatchOrchestrator.cleanupConsumerResources(
+                                            metadata.getGroupId(),
+                                            metadata.getConsumerId()
+                                    );
+                                    consumerRegistry.unregisterConsumer(metadata.getConsumerId());
+                                })
+                                .subscribe();
+
+                        consumerRegistry.registerConsumer(connection);
+
+                        ConsumerRequestHandler consumerRequestHandler = handlerFactory.create(connection);
+                        return  Mono.just((RSocket) consumerRequestHandler);
+
+                    } catch (Exception e) {
+                        return Mono.error(e);
+                    }
+                })
+                .timeout(Duration.ofSeconds(3000))
+                .doOnError(e -> logger.error("Connection setup failed", e));
     }
 }

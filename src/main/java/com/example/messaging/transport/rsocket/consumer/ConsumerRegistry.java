@@ -48,13 +48,15 @@ public class ConsumerRegistry {
         ConsumerConnection connection = consumerConnections.remove(consumerId);
         if (connection != null) {
             String groupId = connection.getMetadata().getGroupId();
+            // Remove from groups
             consumerGroups.computeIfPresent(groupId, (k, members) -> {
                 members.remove(consumerId);
                 return members.isEmpty() ? null : members;
             });
-
+            // Dispose RSocket connection
             connection.disconnect();
-            logger.debug("Consumer unregistered - ID: {}, Group: {}", consumerId, groupId);
+
+            logger.info("Consumer unregistered and resources cleaned up - ID: {}, Group: {}", consumerId, groupId);
         }
     }
 

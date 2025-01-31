@@ -115,3 +115,8 @@ dispatch:
     processInterval: 1000
     cleanupInterval: 30000
     batchTimeoutMs: 30000
+logger:
+  levels:
+    root: ERROR
+    io.micronaut: ERROR
+    your.package.name: ERROR

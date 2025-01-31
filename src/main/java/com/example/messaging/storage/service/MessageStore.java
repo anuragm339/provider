@@ -84,4 +84,12 @@ public interface MessageStore {
     CompletableFuture<List<Message>> getMessagesByOffsets(List<Long> offsets);
 
     CompletableFuture<Void> updateMessageStatus(List<Long> offset, MessageState messageState, String consumerId);
+
+    /**
+     * Get messages for a group in a specific state
+     * @param groupId The consumer group ID
+     * @param state The message state to query
+     * @return Future containing list of messages in the specified state
+     */
+    CompletableFuture<List<Message>> getMessagesInState(String groupId, MessageState state);
 }
