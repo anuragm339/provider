@@ -25,6 +25,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Singleton
 public class ConsumerRequestHandler implements RSocket {
@@ -56,22 +58,20 @@ public class ConsumerRequestHandler implements RSocket {
                         }
                         if ("BATCH_ACK".equals(type)) {
                             String batchId = root.get("batchId").asText();
-                            String consumerId = root.get("consumerId").asText();
 
                             JsonNode offsetsNode = root.get("messageOffsets");
                             List<Long> ackOffsetList=new ArrayList<>();
                             if (offsetsNode.isArray()) {
                                 offsetsNode.forEach(offset -> ackOffsetList.add(offset.asLong()));
+                                String consumerId = extractConsumerId(batchId);
                                 messageDispatchOrchestrator.handleBatchAcknowledgment(
                                         batchId,
                                         ackOffsetList,
                                         consumerId
                                 );
                             }
+                            logger.info("Received ack in provider: {}", batchId);
                         }
-
-                        logger.info("Received ack in provider: {}", data);
-                        // Process acknowledgment
                     } finally {
                         payload.release();
                     }
@@ -158,5 +158,14 @@ public class ConsumerRequestHandler implements RSocket {
     private Flux<Payload> handleReplayRequest(ReplayRequest request) {
         connection.getMetadata().setState(ConsumerState.REPLAYING);
         return Flux.empty(); // Implement replay logic
+    }
+    private String extractConsumerId(String input){
+        Pattern pattern = Pattern.compile("^(type-\\d+)");
+        Matcher matcher = pattern.matcher(input);
+
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
     }
 }

@@ -153,6 +153,7 @@ public class MessageDispatchOrchestrator {
                 })
                 .doOnError(error -> {
                     logger.error("Failed to publish batch {} for group {}: {}", batchId, groupId, error.getMessage());
+                    handleDeliveryFailure(groupId, batchId, error);
                     cleanupBatch(batchId);
                 })
                 .block();
